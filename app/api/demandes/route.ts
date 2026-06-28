@@ -1,89 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServer } from '@/lib/supabaseServer';
-import { demandeSchema } from '@/lib/validation';
-import { rateLimit, getClientIp } from '@/lib/rateLimit';
+import { getSupabaseServer } from '@/lib/supabase';
 
-export async function POST(req: NextRequest) {
-  const ip = getClientIp(req);
-  const { allowed } = rateLimit(`demandes:${ip}`, { max: 10, windowMs: 60_000 });
-  if (!allowed) {
-    return NextResponse.json(
-      { error: 'Trop de requêtes, réessayez dans un instant.' },
-      { status: 429 }
-    );
-  }
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const asso = searchParams.get('association_id');
+  const statut = searchParams.get('statut');
+  const annee = searchParams.get('annee');
+  const presta = searchParams.get('presta');
+  const q = searchParams.get('q');
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Corps de requête invalide.' }, { status: 400 });
-  }
-
-  const parsed = demandeSchema.safeParse(body);
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: firstIssue?.message || 'Données invalides.' },
-      { status: 422 }
-    );
-  }
-
-  const input = parsed.data;
   const supabase = getSupabaseServer();
-
-  // On vérifie que l'association référencée existe réellement avant
-  // d'accepter la demande — empêche de rattacher une demande à un
-  // identifiant arbitraire envoyé directement à l'API.
-  const { data: assoExists, error: assoError } = await supabase
-    .from('associations')
-    .select('id')
-    .eq('id', input.association_id)
-    .maybeSingle();
-
-  if (assoError || !assoExists) {
-    return NextResponse.json(
-      { error: 'Association introuvable.' },
-      { status: 404 }
-    );
-  }
-
-  const { data, error } = await supabase
+  let query = supabase
     .from('demandes')
-    .insert({
-      association_id: input.association_id,
-      type_demande: input.type_demande ?? 'premiere',
-      bilan_subvention_anterieure: input.bilan_subvention_anterieure ?? null,
-      bilan_activites: input.bilan_activites || null,
-      bilan_nb_beneficiaires_reel: input.bilan_nb_beneficiaires_reel ?? null,
-      bailleur_type: input.bailleur_type,
-      bailleur_nom: input.bailleur_nom,
-      montant_demande: input.montant_demande ?? null,
-      titre_projet: input.titre_projet,
-      objectif_projet: input.objectif_projet,
-      public_beneficiaire: input.public_beneficiaire || null,
-      nb_beneficiaires_estime: input.nb_beneficiaires_estime ?? null,
-      periode_debut: input.periode_debut || null,
-      periode_fin: input.periode_fin || null,
-      budget_previsionnel_json: input.budget_previsionnel_json || [],
-      statut: 'collecte',
-    })
-    .select()
-    .single();
+    .select('*, associations(id, nom, ville, contact_email)')
+    .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('Erreur insertion demande:', error.message);
-    return NextResponse.json(
-      { error: "Une erreur est survenue lors de l'enregistrement." },
-      { status: 500 }
+  if (asso) query = query.eq('association_id', asso);
+  if (statut) query = query.eq('statut', statut);
+  if (presta) query = query.eq('presta_redacteur', presta);
+  if (annee) {
+    query = query
+      .gte('created_at', `${annee}-01-01`)
+      .lte('created_at', `${annee}-12-31`);
+  }
+  if (q) {
+    query = query.or(
+      `titre_projet.ilike.%${q}%,bailleur_nom.ilike.%${q}%`
     );
   }
 
-  await supabase.from('journal').insert({
-    demande_id: data.id,
-    evenement: 'demande_creee',
-    detail: `Demande créée pour ${input.titre_projet}`,
-  });
-
-  return NextResponse.json({ demande: data });
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ demandes: data });
 }

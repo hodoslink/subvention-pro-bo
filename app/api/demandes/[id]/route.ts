@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getSupabaseServer } from '@/lib/supabase';
+import { z } from 'zod';
+
+const patchSchema = z.object({
+  statut: z.enum(['collecte', 'redaction', 'controle_compta', 'depose', 'decision_attente', 'accepte', 'refuse']).optional(),
+  presta_redacteur: z.string().max(200).optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+  date_depot: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  date_decision: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  montant_obtenu: z.number().min(0).max(1_000_000).optional().nullable(),
+});
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from('demandes')
+    .select('*, associations(*)')
+    .eq('id', id)
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  return NextResponse.json({ demande: data });
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  let body: unknown;
+  try { body = await req.json(); } catch {
+    return NextResponse.json({ error: 'Corps invalide' }, { status: 400 });
+  }
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 422 });
+  }
+
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from('demandes')
+    .update(parsed.data)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Journal entry
+  if (parsed.data.statut) {
+    await supabase.from('journal').insert({
+      demande_id: id,
+      evenement: 'statut_change',
+      detail: `Statut → ${parsed.data.statut}`,
+    });
+  }
+
+  return NextResponse.json({ demande: data });
+}
