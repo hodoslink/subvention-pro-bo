@@ -18,18 +18,56 @@ type EnrichResult = {
   conseil_montant: string;
 };
 
+type ProjetDraft = {
+  titre_projet: string;
+  bailleur_nom: string;
+  bailleur_type: 'ville' | 'departement' | '';
+  montant_demande: string;
+  periode_debut: string;
+  periode_fin: string;
+  objectif_projet: string;
+  public_beneficiaire: string;
+  nb_beneficiaires_estime: string;
+  bilan_subvention_anterieure: string;
+  bilan_nb_beneficiaires_reel: string;
+  bilan_activites: string;
+};
+
+function draftFromDemande(d: FullDemande): ProjetDraft {
+  return {
+    titre_projet: d.titre_projet || '',
+    bailleur_nom: d.bailleur_nom || '',
+    bailleur_type: (d.bailleur_type as 'ville' | 'departement') || '',
+    montant_demande: d.montant_demande?.toString() || '',
+    periode_debut: d.periode_debut || '',
+    periode_fin: d.periode_fin || '',
+    objectif_projet: d.objectif_projet || '',
+    public_beneficiaire: d.public_beneficiaire || '',
+    nb_beneficiaires_estime: d.nb_beneficiaires_estime?.toString() || '',
+    bilan_subvention_anterieure: d.bilan_subvention_anterieure?.toString() || '',
+    bilan_nb_beneficiaires_reel: d.bilan_nb_beneficiaires_reel?.toString() || '',
+    bilan_activites: d.bilan_activites || '',
+  };
+}
+
 export default function FicheDemande({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [demande, setDemande] = useState<FullDemande | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Edition
+  // Gestion dossier (colonne droite)
   const [editStatut, setEditStatut] = useState('');
   const [editPresta, setEditPresta] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editMontantObtenu, setEditMontantObtenu] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Edition projet (colonne gauche)
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState<ProjetDraft | null>(null);
+  const [savingProjet, setSavingProjet] = useState(false);
+  const [savedProjet, setSavedProjet] = useState(false);
 
   // IA
   const [enrichLoading, setEnrichLoading] = useState(false);
@@ -39,20 +77,57 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [lettreStyle, setLettreStyle] = useState<'formel' | 'accessible'>('formel');
   const [activeTab, setActiveTab] = useState<'dossier' | 'ia' | 'lettre'>('dossier');
 
-  useEffect(() => {
-    fetch(`/api/demandes/${id}`)
-      .then((r) => r.json())
-      .then(({ demande: d }) => {
-        setDemande(d);
-        setEditStatut(d?.statut || '');
-        setEditPresta(d?.presta_redacteur || '');
-        setEditNotes(d?.notes || '');
-        setEditMontantObtenu(d?.montant_obtenu?.toString() || '');
-        setLoading(false);
-      });
-  }, [id]);
+  const loadDemande = async () => {
+    const r = await fetch(`/api/demandes/${id}`);
+    const { demande: d } = await r.json();
+    setDemande(d);
+    setEditStatut(d?.statut || '');
+    setEditPresta(d?.presta_redacteur || '');
+    setEditNotes(d?.notes || '');
+    setEditMontantObtenu(d?.montant_obtenu?.toString() || '');
+    setDraft(draftFromDemande(d));
+    setLoading(false);
+  };
 
-  const save = async () => {
+  useEffect(() => { loadDemande(); }, [id]);
+
+  const setField = (key: keyof ProjetDraft, val: string) =>
+    setDraft((prev) => prev ? { ...prev, [key]: val } : prev);
+
+  const cancelEdit = () => {
+    if (demande) setDraft(draftFromDemande(demande));
+    setEditMode(false);
+  };
+
+  const saveProjet = async () => {
+    if (!draft) return;
+    setSavingProjet(true);
+    await fetch(`/api/demandes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        titre_projet: draft.titre_projet || null,
+        bailleur_nom: draft.bailleur_nom || null,
+        bailleur_type: draft.bailleur_type || null,
+        montant_demande: draft.montant_demande ? Number(draft.montant_demande) : null,
+        periode_debut: draft.periode_debut || null,
+        periode_fin: draft.periode_fin || null,
+        objectif_projet: draft.objectif_projet || null,
+        public_beneficiaire: draft.public_beneficiaire || null,
+        nb_beneficiaires_estime: draft.nb_beneficiaires_estime ? Number(draft.nb_beneficiaires_estime) : null,
+        bilan_subvention_anterieure: draft.bilan_subvention_anterieure ? Number(draft.bilan_subvention_anterieure) : null,
+        bilan_nb_beneficiaires_reel: draft.bilan_nb_beneficiaires_reel ? Number(draft.bilan_nb_beneficiaires_reel) : null,
+        bilan_activites: draft.bilan_activites || null,
+      }),
+    });
+    await loadDemande();
+    setSavingProjet(false);
+    setSavedProjet(true);
+    setEditMode(false);
+    setTimeout(() => setSavedProjet(false), 2500);
+  };
+
+  const saveGestion = async () => {
     setSaving(true);
     await fetch(`/api/demandes/${id}`, {
       method: 'PATCH',
@@ -64,13 +139,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         montant_obtenu: editMontantObtenu ? Number(editMontantObtenu) : null,
       }),
     });
+    await loadDemande();
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-    // Refresh
-    const r = await fetch(`/api/demandes/${id}`);
-    const { demande: d } = await r.json();
-    setDemande(d);
   };
 
   const enrich = async () => {
@@ -100,7 +172,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   };
 
   if (loading) return <AppShell><div className="p-8 text-gray-400">Chargement…</div></AppShell>;
-  if (!demande) return <AppShell><div className="p-8 text-red-500">Demande introuvable</div></AppShell>;
+  if (!demande || !draft) return <AppShell><div className="p-8 text-red-500">Demande introuvable</div></AppShell>;
 
   const asso = demande.associations;
   const budget = (demande.budget_previsionnel_json as BudgetLigne[] | null) || [];
@@ -153,29 +225,167 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
           ))}
         </div>
 
-        {/* Onglet Dossier */}
+        {/* ── Onglet Dossier ─────────────────────────────────────── */}
         {activeTab === 'dossier' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Colonne gauche */}
+            {/* Colonne gauche — informations projet */}
             <div className="lg:col-span-2 space-y-5">
-              <Section title="Projet">
-                <Row label="Titre" value={demande.titre_projet} />
-                <Row label="Bailleur" value={`${demande.bailleur_nom} (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})`} />
-                <Row label="Période" value={`${demande.periode_debut || '?'} → ${demande.periode_fin || '?'}`} />
-                <Row label="Montant demandé" value={demande.montant_demande ? `${demande.montant_demande.toLocaleString('fr-FR')} €` : '—'} />
-                {demande.objectif_projet && (
-                  <div className="pt-1">
-                    <p className="text-xs text-gray-500 mb-1">Objectif du projet</p>
-                    <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{demande.objectif_projet}</p>
+
+              {/* Section Projet */}
+              <div className="card space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-50 pb-2">
+                  <h2 className="text-sm font-semibold text-gray-700">Projet</h2>
+                  {savedProjet && !editMode && (
+                    <span className="text-xs text-green-600 font-medium">✓ Enregistré</span>
+                  )}
+                  {!editMode ? (
+                    <button
+                      onClick={() => setEditMode(true)}
+                      className="btn btn-ghost text-xs py-1 px-2"
+                    >
+                      ✏️ Modifier
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button onClick={cancelEdit} className="btn btn-ghost text-xs py-1 px-2">
+                        Annuler
+                      </button>
+                      <button
+                        onClick={saveProjet}
+                        disabled={savingProjet}
+                        className="btn btn-primary text-xs py-1 px-3"
+                      >
+                        {savingProjet ? 'Enregistrement…' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {editMode ? (
+                  <div className="space-y-4">
+                    <Field label="Titre du projet">
+                      <input
+                        className="field-input"
+                        value={draft.titre_projet}
+                        onChange={(e) => setField('titre_projet', e.target.value)}
+                        placeholder="Titre du projet"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Bailleur">
+                        <input
+                          className="field-input"
+                          value={draft.bailleur_nom}
+                          onChange={(e) => setField('bailleur_nom', e.target.value)}
+                          placeholder="Nom du bailleur"
+                        />
+                      </Field>
+                      <Field label="Type de bailleur">
+                        <select
+                          className="field-input"
+                          value={draft.bailleur_type}
+                          onChange={(e) => setField('bailleur_type', e.target.value)}
+                        >
+                          <option value="">—</option>
+                          <option value="ville">Ville</option>
+                          <option value="departement">Département</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Field label="Montant demandé (€)">
+                        <input
+                          type="number"
+                          className="field-input"
+                          value={draft.montant_demande}
+                          onChange={(e) => setField('montant_demande', e.target.value)}
+                          placeholder="0"
+                          min={0}
+                        />
+                      </Field>
+                      <Field label="Période début">
+                        <input
+                          className="field-input"
+                          value={draft.periode_debut}
+                          onChange={(e) => setField('periode_debut', e.target.value)}
+                          placeholder="janv. 2025"
+                        />
+                      </Field>
+                      <Field label="Période fin">
+                        <input
+                          className="field-input"
+                          value={draft.periode_fin}
+                          onChange={(e) => setField('periode_fin', e.target.value)}
+                          placeholder="déc. 2025"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Objectif du projet">
+                      <textarea
+                        rows={4}
+                        className="field-textarea"
+                        value={draft.objectif_projet}
+                        onChange={(e) => setField('objectif_projet', e.target.value)}
+                        placeholder="Décrivez l'objectif principal du projet…"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Public bénéficiaire">
+                        <input
+                          className="field-input"
+                          value={draft.public_beneficiaire}
+                          onChange={(e) => setField('public_beneficiaire', e.target.value)}
+                          placeholder="Ex : jeunes de 12 à 18 ans"
+                        />
+                      </Field>
+                      <Field label="Nb bénéficiaires estimés">
+                        <input
+                          type="number"
+                          className="field-input"
+                          value={draft.nb_beneficiaires_estime}
+                          onChange={(e) => setField('nb_beneficiaires_estime', e.target.value)}
+                          placeholder="0"
+                          min={0}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <Row label="Titre" value={demande.titre_projet} />
+                    <Row
+                      label="Bailleur"
+                      value={
+                        demande.bailleur_nom
+                          ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})` : ''}`
+                          : undefined
+                      }
+                    />
+                    <Row label="Période" value={`${demande.periode_debut || '?'} → ${demande.periode_fin || '?'}`} />
+                    <Row
+                      label="Montant demandé"
+                      value={demande.montant_demande ? `${demande.montant_demande.toLocaleString('fr-FR')} €` : undefined}
+                    />
+                    {demande.objectif_projet && (
+                      <div className="pt-1">
+                        <p className="text-xs text-gray-500 mb-1">Objectif du projet</p>
+                        <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{demande.objectif_projet}</p>
+                      </div>
+                    )}
+                    {demande.public_beneficiaire && (
+                      <Row
+                        label="Public"
+                        value={`${demande.public_beneficiaire}${demande.nb_beneficiaires_estime ? ` (${demande.nb_beneficiaires_estime} personnes)` : ''}`}
+                      />
+                    )}
                   </div>
                 )}
-                {demande.public_beneficiaire && (
-                  <Row label="Public" value={`${demande.public_beneficiaire}${demande.nb_beneficiaires_estime ? ` (${demande.nb_beneficiaires_estime} personnes)` : ''}`} />
-                )}
-              </Section>
+              </div>
 
+              {/* Budget — lecture seule */}
               {budget.length > 0 && (
-                <Section title="Budget prévisionnel">
+                <div className="card space-y-3">
+                  <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-50 pb-2">Budget prévisionnel</h2>
                   <div className="space-y-1.5">
                     {budget.map((l, i) => (
                       <div key={i} className="flex justify-between text-sm">
@@ -192,35 +402,85 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       </div>
                     )}
                   </div>
-                </Section>
+                </div>
               )}
 
+              {/* Bilan renouvellement */}
               {demande.type_demande === 'renouvellement' && (
-                <Section title="Bilan année précédente">
-                  <Row label="Subvention reçue" value={demande.bilan_subvention_anterieure ? `${demande.bilan_subvention_anterieure.toLocaleString('fr-FR')} €` : '—'} />
-                  <Row label="Bénéficiaires réels" value={demande.bilan_nb_beneficiaires_reel?.toString() || '—'} />
-                  {demande.bilan_activites && (
-                    <div className="pt-1">
-                      <p className="text-xs text-gray-500 mb-1">Bilan des actions</p>
-                      <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{demande.bilan_activites}</p>
+                <div className="card space-y-4">
+                  <div className="flex items-center justify-between border-b border-gray-50 pb-2">
+                    <h2 className="text-sm font-semibold text-gray-700">Bilan année précédente</h2>
+                    {!editMode && (
+                      <button onClick={() => setEditMode(true)} className="btn btn-ghost text-xs py-1 px-2">
+                        ✏️ Modifier
+                      </button>
+                    )}
+                  </div>
+                  {editMode ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Subvention reçue (€)">
+                          <input
+                            type="number"
+                            className="field-input"
+                            value={draft.bilan_subvention_anterieure}
+                            onChange={(e) => setField('bilan_subvention_anterieure', e.target.value)}
+                            placeholder="0"
+                            min={0}
+                          />
+                        </Field>
+                        <Field label="Bénéficiaires réels">
+                          <input
+                            type="number"
+                            className="field-input"
+                            value={draft.bilan_nb_beneficiaires_reel}
+                            onChange={(e) => setField('bilan_nb_beneficiaires_reel', e.target.value)}
+                            placeholder="0"
+                            min={0}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Bilan des actions">
+                        <textarea
+                          rows={4}
+                          className="field-textarea"
+                          value={draft.bilan_activites}
+                          onChange={(e) => setField('bilan_activites', e.target.value)}
+                          placeholder="Décrivez les actions réalisées et les résultats obtenus…"
+                        />
+                      </Field>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <Row label="Subvention reçue" value={demande.bilan_subvention_anterieure ? `${demande.bilan_subvention_anterieure.toLocaleString('fr-FR')} €` : undefined} />
+                      <Row label="Bénéficiaires réels" value={demande.bilan_nb_beneficiaires_reel?.toString()} />
+                      {demande.bilan_activites && (
+                        <div className="pt-1">
+                          <p className="text-xs text-gray-500 mb-1">Bilan des actions</p>
+                          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{demande.bilan_activites}</p>
+                        </div>
+                      )}
                     </div>
                   )}
-                </Section>
+                </div>
               )}
 
-              <Section title="Association">
+              {/* Association — lecture seule */}
+              <div className="card space-y-3">
+                <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-50 pb-2">Association</h2>
                 <Row label="Nom" value={asso.nom} />
                 <Row label="Adresse" value={[asso.adresse, asso.code_postal, asso.ville].filter(Boolean).join(', ')} />
-                <Row label="RNA" value={asso.rna || '—'} />
+                <Row label="RNA" value={asso.rna} />
                 <Row label="Contact" value={`${asso.contact_nom}${asso.contact_role ? ` (${asso.contact_role})` : ''}`} />
                 <Row label="Email" value={asso.contact_email} />
-                <Row label="Membres" value={asso.nb_membres?.toString() || '—'} />
-              </Section>
+                <Row label="Membres" value={asso.nb_membres?.toString()} />
+              </div>
             </div>
 
             {/* Colonne droite — gestion */}
             <div className="space-y-5">
-              <Section title="Suivi du dossier">
+              <div className="card space-y-3">
+                <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-50 pb-2">Suivi du dossier</h2>
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs text-gray-500 font-medium block mb-1">Statut</label>
@@ -261,40 +521,39 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       onChange={(e) => setEditNotes(e.target.value)}
                     />
                   </div>
-                  <button onClick={save} disabled={saving} className="btn btn-primary w-full justify-center">
+                  <button onClick={saveGestion} disabled={saving} className="btn btn-primary w-full justify-center">
                     {saving ? 'Enregistrement…' : saved ? '✓ Enregistré' : 'Enregistrer'}
                   </button>
                 </div>
-              </Section>
+              </div>
 
-              <Section title="Assistance IA">
-                <div className="space-y-3">
-                  <p className="text-xs text-gray-500">
-                    Enrichissez le dossier avec l'IA : analyse des points forts/faibles, suggestions de rédaction.
-                  </p>
-                  <button onClick={enrich} disabled={enrichLoading} className="btn btn-secondary w-full justify-center">
-                    {enrichLoading ? '⏳ Analyse en cours…' : '🔍 Analyser le dossier'}
+              <div className="card space-y-3">
+                <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-50 pb-2">Assistance IA</h2>
+                <p className="text-xs text-gray-500">
+                  Analyse des points forts / faibles, suggestions de rédaction.
+                </p>
+                <button onClick={enrich} disabled={enrichLoading} className="btn btn-secondary w-full justify-center">
+                  {enrichLoading ? '⏳ Analyse en cours…' : '🔍 Analyser le dossier'}
+                </button>
+                <div className="flex gap-2">
+                  <select
+                    className="field-input text-xs"
+                    value={lettreStyle}
+                    onChange={(e) => setLettreStyle(e.target.value as 'formel' | 'accessible')}
+                  >
+                    <option value="formel">Style formel</option>
+                    <option value="accessible">Style accessible</option>
+                  </select>
+                  <button onClick={genLettre} disabled={lettreLoading} className="btn btn-secondary shrink-0">
+                    {lettreLoading ? '⏳' : '✉️ Lettre'}
                   </button>
-                  <div className="flex gap-2">
-                    <select
-                      className="field-input text-xs"
-                      value={lettreStyle}
-                      onChange={(e) => setLettreStyle(e.target.value as 'formel' | 'accessible')}
-                    >
-                      <option value="formel">Style formel</option>
-                      <option value="accessible">Style accessible</option>
-                    </select>
-                    <button onClick={genLettre} disabled={lettreLoading} className="btn btn-secondary shrink-0">
-                      {lettreLoading ? '⏳' : '✉️ Lettre'}
-                    </button>
-                  </div>
                 </div>
-              </Section>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Onglet IA */}
+        {/* ── Onglet IA ──────────────────────────────────────────── */}
         {activeTab === 'ia' && (
           <div className="space-y-5">
             {enrichLoading && (
@@ -361,7 +620,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
           </div>
         )}
 
-        {/* Onglet Lettre */}
+        {/* ── Onglet Lettre ──────────────────────────────────────── */}
         {activeTab === 'lettre' && (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
@@ -377,15 +636,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 {lettreLoading ? '⏳ Génération…' : '✉️ Générer la lettre'}
               </button>
               {lettre && (
-                <button
-                  onClick={() => navigator.clipboard.writeText(lettre)}
-                  className="btn btn-secondary"
-                >
+                <button onClick={() => navigator.clipboard.writeText(lettre)} className="btn btn-secondary">
                   📋 Copier
                 </button>
               )}
             </div>
-
             {lettreLoading && (
               <div className="card text-center py-12 text-gray-400">⏳ Rédaction en cours…</div>
             )}
@@ -410,6 +665,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div className="card space-y-3">
       <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-50 pb-2">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs text-gray-500 font-medium block mb-1">{label}</label>
       {children}
     </div>
   );

@@ -8,7 +8,20 @@ const patchSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
   date_depot: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   date_decision: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-  montant_obtenu: z.number().min(0).max(1_000_000).optional().nullable(),
+  montant_obtenu: z.number().min(0).max(10_000_000).optional().nullable(),
+  // Champs projet
+  titre_projet: z.string().max(500).optional().nullable(),
+  bailleur_nom: z.string().max(300).optional().nullable(),
+  bailleur_type: z.enum(['ville', 'departement']).optional().nullable(),
+  montant_demande: z.number().min(0).max(10_000_000).optional().nullable(),
+  periode_debut: z.string().max(50).optional().nullable(),
+  periode_fin: z.string().max(50).optional().nullable(),
+  objectif_projet: z.string().max(5000).optional().nullable(),
+  public_beneficiaire: z.string().max(500).optional().nullable(),
+  nb_beneficiaires_estime: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  bilan_subvention_anterieure: z.number().min(0).max(10_000_000).optional().nullable(),
+  bilan_nb_beneficiaires_reel: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  bilan_activites: z.string().max(5000).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
