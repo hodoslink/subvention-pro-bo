@@ -1117,24 +1117,50 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         </div>
                       )}
                     </div>
-                    {/* Locaux */}
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={draft.locaux_mis_a_disposition}
-                          onChange={e => setField('locaux_mis_a_disposition', e.target.checked)}
-                        />
-                        <span className="text-sm font-medium text-gray-700">Des locaux sont-ils mis à disposition gratuitement ?</span>
-                      </label>
-                      {draft.locaux_mis_a_disposition && (
-                        <div className="mt-3 grid grid-cols-2 gap-3">
-                          <Field label="Qui met à disposition ?">
-                            <input className="field-input" value={draft.locaux_bailleur} onChange={e => setField('locaux_bailleur', e.target.value)} placeholder="Ex : Mairie du 13e, MJC…" />
-                          </Field>
-                          <Field label="Valeur estimée (€/an)">
-                            <input type="number" className="field-input" value={draft.locaux_valeur_estimee} onChange={e => setField('locaux_valeur_estimee', e.target.value)} placeholder="Ex : 2 400" min={0} />
-                          </Field>
+                    {/* Locaux — deux situations mutuellement exclusives regroupées */}
+                    <div className="space-y-3 border border-gray-100 rounded-lg p-3 bg-gray-50">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Locaux utilisés par le projet</p>
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={draft.locaux_mis_a_disposition}
+                            onChange={e => setField('locaux_mis_a_disposition', e.target.checked)}
+                          />
+                          <span className="text-sm font-medium text-gray-700">Locaux mis à disposition <strong>GRATUITEMENT</strong> par un tiers (mairie, partenaire…)</span>
+                        </label>
+                        {draft.locaux_mis_a_disposition && (
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <Field label="Qui met à disposition ?">
+                              <input className="field-input" value={draft.locaux_bailleur} onChange={e => setField('locaux_bailleur', e.target.value)} placeholder="Ex : Mairie du 13e, MJC…" />
+                            </Field>
+                            <Field label="Valeur estimée (€/an)">
+                              <input type="number" className="field-input" value={draft.locaux_valeur_estimee} onChange={e => setField('locaux_valeur_estimee', e.target.value)} placeholder="Ex : 2 400" min={0} />
+                            </Field>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 italic">Un même local ne doit être déclaré que dans l&apos;une des deux situations ci-dessous, jamais les deux.</p>
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input type="checkbox" checked={draft.location_salle_payante} onChange={e => setField('location_salle_payante', e.target.checked)} />
+                          <span className="text-sm font-medium text-gray-700">Location de salle que <strong>VOUS payez</strong> (compte 61)</span>
+                        </label>
+                        {draft.location_salle_payante && (
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <Field label="Coût annuel total (€)">
+                              <input type="number" className="field-input" value={draft.location_salle_cout_annuel} onChange={e => setField('location_salle_cout_annuel', e.target.value)} placeholder="Ex : 3 600" min={0} />
+                            </Field>
+                            <Field label="Précisions">
+                              <input className="field-input" value={draft.location_salle_precisions} onChange={e => setField('location_salle_precisions', e.target.value)} placeholder="Ex : salle polyvalente 3h × 48 sem." />
+                            </Field>
+                          </div>
+                        )}
+                      </div>
+                      {draft.locaux_mis_a_disposition && draft.location_salle_payante && (
+                        <div className="flex gap-2 items-start text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-2">
+                          <span className="shrink-0 mt-0.5">⚠️</span>
+                          <span>Vous avez coché à la fois &laquo;&nbsp;mis à disposition gratuitement&nbsp;&raquo; et &laquo;&nbsp;location payante&nbsp;&raquo; — vérifiez que ce ne sont pas le même local.</span>
                         </div>
                       )}
                     </div>
@@ -1161,10 +1187,14 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       )}
                     </div>
                     <RowF
-                      label="Locaux mis à disposition"
+                      label="Locaux mis à disposition GRATUITEMENT"
                       value={det.locaux_mis_a_disposition
                         ? `${det.locaux_bailleur || 'Oui'}${det.locaux_valeur_estimee ? ` — ${parseFloat(det.locaux_valeur_estimee).toLocaleString('fr-FR')} €/an` : ''}`
                         : null}
+                    />
+                    <RowF
+                      label="Location de salle (payante)"
+                      value={det.location_salle_payante ? `${det.location_salle_cout_annuel ? `${parseFloat(det.location_salle_cout_annuel).toLocaleString('fr-FR')} €/an` : 'Oui'}${det.location_salle_precisions ? ` — ${det.location_salle_precisions}` : ''}` : null}
                     />
                   </div>
                 )}
@@ -1198,23 +1228,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         </div>
                       )}
                       <button type="button" onClick={addAchat} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter un achat</button>
-                    </div>
-                    {/* Location de salle */}
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" checked={draft.location_salle_payante} onChange={e => setField('location_salle_payante', e.target.checked)} />
-                        <span className="text-sm font-medium text-gray-700">Location de salle payante (compte 61)</span>
-                      </label>
-                      {draft.location_salle_payante && (
-                        <div className="mt-3 grid grid-cols-2 gap-3">
-                          <Field label="Coût annuel total (€)">
-                            <input type="number" className="field-input" value={draft.location_salle_cout_annuel} onChange={e => setField('location_salle_cout_annuel', e.target.value)} placeholder="Ex : 3 600" min={0} />
-                          </Field>
-                          <Field label="Précisions">
-                            <input className="field-input" value={draft.location_salle_precisions} onChange={e => setField('location_salle_precisions', e.target.value)} placeholder="Ex : salle polyvalente 3h × 48 sem." />
-                          </Field>
-                        </div>
-                      )}
                     </div>
                     {/* Assurance */}
                     <div>
@@ -1285,7 +1298,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         </div>
                       ) : <p className="text-sm text-gray-300 italic">—</p>}
                     </div>
-                    <RowF label="Location de salle" value={det.location_salle_payante ? `${det.location_salle_cout_annuel ? `${parseFloat(det.location_salle_cout_annuel).toLocaleString('fr-FR')} €/an` : 'Oui'}${det.location_salle_precisions ? ` — ${det.location_salle_precisions}` : ''}` : null} />
                     <RowF label="Assurance dédiée" value={det.assurance_dediee && det.assurance_cout_annuel ? `${parseFloat(det.assurance_cout_annuel).toLocaleString('fr-FR')} €/an` : det.assurance_dediee ? 'Oui' : null} />
                     <RowF label="Déplacements estimés" value={det.deplacements_estimes && det.deplacements_frequence_mensuelle && det.deplacements_cout_moyen ? `${det.deplacements_frequence_mensuelle} trajet(s)/mois × ${det.deplacements_cout_moyen} €` : det.deplacements_estimes ? 'Oui' : null} />
                     <RowF label="Cotisations bénéficiaires" value={det.cotisations_actives && det.nb_adherents_payants ? `${det.nb_adherents_payants} adhérents × ${det.tarif_moyen_annuel || '?'} €/an` : det.cotisations_actives ? 'Oui' : null} />

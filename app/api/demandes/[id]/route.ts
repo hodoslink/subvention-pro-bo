@@ -109,12 +109,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
     const clesCourantes = new Set(lignesAuto.map(l => l.cle_generation));
 
+    const syncWarnings: string[] = [];
+
     // Delete auto lines that are no longer generated
     const idsToDelete = (existingLines ?? [])
       .filter(l => !clesCourantes.has(l.cle_generation as string))
       .map(l => l.id as string);
     if (idsToDelete.length > 0) {
-      await supabase.from('budget_lignes').delete().in('id', idsToDelete);
+      const { error: delErr } = await supabase.from('budget_lignes').delete().in('id', idsToDelete);
+      if (delErr) {
+        console.error('[budget-sync] delete error:', delErr.message);
+        syncWarnings.push(`delete: ${delErr.message}`);
+      }
     }
 
     // Insert or update each generated line
@@ -136,10 +142,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         statut_financement: l.statut_financement ?? null,
       };
       if (existingId) {
-        await supabase.from('budget_lignes').update(row).eq('id', existingId);
+        const { error: updErr } = await supabase.from('budget_lignes').update(row).eq('id', existingId);
+        if (updErr) {
+          console.error(`[budget-sync] update error (${l.cle_generation}):`, updErr.message);
+          syncWarnings.push(`update ${l.cle_generation}: ${updErr.message}`);
+        }
       } else {
-        await supabase.from('budget_lignes').insert(row);
+        const { error: insErr } = await supabase.from('budget_lignes').insert(row);
+        if (insErr) {
+          console.error(`[budget-sync] insert error (${l.cle_generation}):`, insErr.message);
+          syncWarnings.push(`insert ${l.cle_generation}: ${insErr.message}`);
+        }
       }
+    }
+
+    if (syncWarnings.length > 0) {
+      return NextResponse.json({ demande: data, sync_warnings: syncWarnings }, { status: 207 });
     }
   }
 

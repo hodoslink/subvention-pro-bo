@@ -292,9 +292,9 @@ export function detecterPatternsInactifs(details: DetailsJson): PatternSuggestio
   if (!details.location_salle_payante) {
     suggestions.push({
       cle: 'location_salle_payante',
-      label: 'Location de salle',
+      label: 'Location de salle que vous payez',
       description: 'Avez-vous un loyer pour un local ou une salle lié à ce projet ?',
-      section_cible: 'Charges et recettes additionnelles',
+      section_cible: 'Prestataires et moyens matériels',
     });
   }
 
