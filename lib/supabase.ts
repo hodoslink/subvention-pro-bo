@@ -16,6 +16,28 @@ export type BaillleurType = 'ville' | 'departement';
 
 export type BudgetLigne = { poste: string; montant?: string | number };
 
+export type BudgetV2 = {
+  _v: 2;
+  depenses: { label: string; montant: string }[];
+  recettes: { label: string; montant: string }[];
+};
+
+export type DetailsJson = {
+  thematique?: string;
+  description_besoins?: string;
+  description_actions?: string;
+  partenariats?: string;
+  beneficiaires_profil?: string;
+  beneficiaires_age?: string;
+  beneficiaires_sexe?: string;
+  localisation_qpv?: string;
+  nb_benevoles?: string;
+  etpt_benevoles?: string;
+  nb_salaries?: string;
+  moyens_description?: string;
+  indicateurs_evaluation?: string;
+};
+
 export type Association = {
   id: string;
   created_at: string;
@@ -49,7 +71,8 @@ export type Demande = {
   nb_beneficiaires_estime?: number;
   periode_debut?: string;
   periode_fin?: string;
-  budget_previsionnel_json?: BudgetLigne[];
+  budget_previsionnel_json?: BudgetLigne[] | BudgetV2;
+  details_json?: DetailsJson;
   type_demande: TypeDemande;
   bilan_subvention_anterieure?: number;
   bilan_activites?: string;

@@ -22,6 +22,8 @@ const patchSchema = z.object({
   bilan_subvention_anterieure: z.number().min(0).max(10_000_000).optional().nullable(),
   bilan_nb_beneficiaires_reel: z.number().int().min(0).max(1_000_000).optional().nullable(),
   bilan_activites: z.string().max(5000).optional().nullable(),
+  budget_previsionnel_json: z.any().optional(),
+  details_json: z.any().optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
