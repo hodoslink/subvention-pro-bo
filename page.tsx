@@ -15,19 +15,30 @@ const STEP_META: Record<string, { hint: string; icon: string }> = {
   decision_attente: { icon: "⏳", hint: "Attendez la décision, relancez si besoin" },
 };
 
-const COL_COLORS: Record<string, { header: string; badge: string; drop: string }> = {
-  collecte:         { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600",   drop: "bg-slate-100/60 ring-slate-300" },
-  redaction:        { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700",     drop: "bg-blue-100/60 ring-blue-300" },
-  controle_compta:  { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700",   drop: "bg-amber-100/60 ring-amber-300" },
-  depose:           { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700", drop: "bg-purple-100/60 ring-purple-300" },
-  decision_attente: { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700", drop: "bg-orange-100/60 ring-orange-300" },
+const COL_COLORS: Record<string, { header: string; badge: string; active: string }> = {
+  collecte:         { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600",   active: "bg-slate-100 ring-2 ring-slate-300" },
+  redaction:        { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700",     active: "bg-blue-100 ring-2 ring-blue-300" },
+  controle_compta:  { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700",   active: "bg-amber-100 ring-2 ring-amber-300" },
+  depose:           { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700", active: "bg-purple-100 ring-2 ring-purple-300" },
+  decision_attente: { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700", active: "bg-orange-100 ring-2 ring-orange-300" },
 };
 
 export default function SuiviPage() {
   const [demandes, setDemandes] = useState<DemandeCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
+
+  // Pointer-based DnD (no HTML5 drag API — cross-browser reliable)
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const dropTargetRef = useRef<string | null>(null);
+  const demandesRef = useRef(demandes);
+  const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => { demandesRef.current = demandes; }, [demandes]);
 
   useEffect(() => {
     fetch("/api/demandes")
@@ -35,59 +46,86 @@ export default function SuiviPage() {
       .then(({ demandes: d }) => { setDemandes(d || []); setLoading(false); });
   }, []);
 
+  useEffect(() => {
+    if (!dragId) return;
+    let activated = false;
+
+    const onMove = (e: PointerEvent) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (!activated && Math.hypot(dx, dy) < 6) return;
+      if (!activated) {
+        activated = true;
+        setIsDragging(true);
+        document.body.style.setProperty('cursor', 'grabbing', 'important');
+        document.body.style.userSelect = 'none';
+      }
+      setDragPos({ x: e.clientX, y: e.clientY });
+
+      let found: string | null = null;
+      for (const [statut, el] of Object.entries(columnRefs.current)) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          found = statut;
+          break;
+        }
+      }
+      dropTargetRef.current = found;
+      setDropTarget(found);
+    };
+
+    const onUp = () => {
+      const target = dropTargetRef.current;
+      if (activated && target) {
+        const prev = demandesRef.current.find(d => d.id === dragId);
+        if (prev && prev.statut !== target) {
+          const prevStatut = prev.statut;
+          setDemandes(all => all.map(d => d.id === dragId ? { ...d, statut: target as Statut } : d));
+          fetch(`/api/demandes/${dragId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ statut: target }),
+          }).then(res => {
+            if (!res.ok) setDemandes(all => all.map(d => d.id === dragId ? { ...d, statut: prevStatut } : d));
+          });
+        }
+      }
+      setDragId(null);
+      setIsDragging(false);
+      setDropTarget(null);
+      dropTargetRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [dragId]);
+
+  const startDrag = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    setDragId(id);
+    setDragPos({ x: e.clientX, y: e.clientY });
+  };
+
   const byStatut = (s: Statut) => demandes.filter(d => d.statut === s);
   const enCours = demandes.filter(d => (STATUTS_ACTIFS as string[]).includes(d.statut));
   const acceptees = byStatut("accepte");
   const refusees = byStatut("refuse");
   const totalMontantAccepte = acceptees.reduce((s, d) => s + (d.montant_obtenu ?? d.montant_demande ?? 0), 0);
 
-  const moveCard = async (demandeId: string, newStatut: Statut) => {
-    const prev = demandes.find(d => d.id === demandeId);
-    if (!prev || prev.statut === newStatut) return;
-    // Optimistic
-    setDemandes(all => all.map(d => d.id === demandeId ? { ...d, statut: newStatut } : d));
-    const res = await fetch(`/api/demandes/${demandeId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statut: newStatut }),
-    });
-    if (!res.ok) {
-      // Rollback
-      setDemandes(all => all.map(d => d.id === demandeId ? { ...d, statut: prev.statut } : d));
-    }
-  };
-
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    // Ensure the event target is the card itself, not a child link/button
-    e.dataTransfer.setData('text/plain', id); // text/plain = max compat
-    e.dataTransfer.setData('demandeId', id);
-    e.dataTransfer.effectAllowed = 'move';
-    // Small delay so React state update doesn't kill the drag ghost
-    setTimeout(() => setDraggingId(id), 0);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingId(null);
-    setDragOver(null);
-  };
-
-  const handleDragOver = (e: React.DragEvent, statut: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOver(statut);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null);
-  };
-
-  const handleDrop = (e: React.DragEvent, statut: string) => {
-    e.preventDefault();
-    const id = e.dataTransfer.getData('demandeId') || e.dataTransfer.getData('text/plain');
-    if (id) moveCard(id, statut as Statut);
-    setDragOver(null);
-    setDraggingId(null);
-  };
+  const ghostDemande = dragId ? demandes.find(d => d.id === dragId) : null;
 
   if (loading) {
     return (
@@ -127,10 +165,7 @@ export default function SuiviPage() {
               {STATUTS_ACTIFS.map((s, i) => {
                 const count = byStatut(s as Statut).length;
                 const pct = enCours.length > 0 ? (count / enCours.length) * 100 : 0;
-                const colors: Record<string, string> = {
-                  collecte: "bg-slate-400", redaction: "bg-blue-400", controle_compta: "bg-amber-400",
-                  depose: "bg-purple-400", decision_attente: "bg-orange-400",
-                };
+                const colors: Record<string, string> = { collecte: "bg-slate-400", redaction: "bg-blue-400", controle_compta: "bg-amber-400", depose: "bg-purple-400", decision_attente: "bg-orange-400" };
                 return (
                   <div key={s} className="flex items-center gap-1 flex-1">
                     {i > 0 && <div className="text-gray-200 text-xs">›</div>}
@@ -158,11 +193,10 @@ export default function SuiviPage() {
               const s = STATUTS[statut as Statut];
               const meta = STEP_META[statut];
               const col = COL_COLORS[statut];
-              const isDropTarget = dragOver === statut;
+              const isTarget = dropTarget === statut && isDragging;
 
               return (
                 <div key={statut} className="w-72 flex-shrink-0 flex flex-col gap-3">
-                  {/* En-tête */}
                   <div className={`rounded-xl border p-3.5 ${col.header}`}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
@@ -174,28 +208,25 @@ export default function SuiviPage() {
                     <p className="text-xs text-gray-500 leading-relaxed">{meta.hint}</p>
                   </div>
 
-                  {/* Zone de drop */}
+                  {/* Drop zone */}
                   <div
+                    ref={el => { columnRefs.current[statut] = el; }}
                     className={[
-                      "flex flex-col gap-3 min-h-24 rounded-xl transition-all duration-150 p-1 -m-1",
-                      isDropTarget ? `ring-2 ${col.drop}` : "",
+                      "flex flex-col gap-3 min-h-24 rounded-xl p-1.5 -m-1.5 transition-all duration-100",
+                      isTarget ? col.active : "",
                     ].join(" ")}
-                    onDragOver={e => handleDragOver(e, statut)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={e => handleDrop(e, statut)}
                   >
                     {items.length === 0 ? (
-                      <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isDropTarget ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                        <p className="text-xs text-gray-400">{isDropTarget ? 'Déposer ici' : 'Aucun dossier'}</p>
+                      <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isTarget ? 'border-current bg-white/50' : 'border-gray-200'}`}>
+                        <p className="text-xs text-gray-400">{isTarget ? '↓ Déposer ici' : 'Aucun dossier'}</p>
                       </div>
                     ) : (
                       items.map(d => (
                         <DossierCard
                           key={d.id}
                           demande={d}
-                          isDragging={draggingId === d.id}
-                          onDragStart={e => handleDragStart(e, d.id)}
-                          onDragEnd={handleDragEnd}
+                          isFading={dragId === d.id && isDragging}
+                          onPointerDown={e => startDrag(e, d.id)}
                         />
                       ))
                     )}
@@ -204,7 +235,7 @@ export default function SuiviPage() {
               );
             })}
 
-            {/* Clôturées (pas de drop — décision via fiche) */}
+            {/* Clôturées */}
             {(acceptees.length > 0 || refusees.length > 0) && (
               <div className="w-72 flex-shrink-0 flex flex-col gap-3">
                 <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
@@ -223,9 +254,8 @@ export default function SuiviPage() {
                   <DossierCard
                     key={d.id}
                     demande={d}
-                    isDragging={draggingId === d.id}
-                    onDragStart={e => handleDragStart(e, d.id)}
-                    onDragEnd={handleDragEnd}
+                    isFading={dragId === d.id && isDragging}
+                    onPointerDown={e => startDrag(e, d.id)}
                   />
                 ))}
               </div>
@@ -244,20 +274,47 @@ export default function SuiviPage() {
           )}
         </div>
       </div>
+
+      {/* Ghost card — follows cursor during drag */}
+      {isDragging && ghostDemande && (
+        <div
+          style={{
+            position: 'fixed',
+            left: dragPos.x - dragOffsetRef.current.x,
+            top: dragPos.y - dragOffsetRef.current.y,
+            width: 288,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            transform: 'rotate(2deg) scale(1.03)',
+            opacity: 0.92,
+          }}
+        >
+          <div className="bg-white rounded-xl border border-blue-400 shadow-2xl p-4">
+            <p className="font-semibold text-sm text-gray-900 mb-1">{ghostDemande.associations?.nom}</p>
+            {ghostDemande.titre_projet && (
+              <p className="text-xs text-gray-500 line-clamp-1 mb-2">{ghostDemande.titre_projet}</p>
+            )}
+            {ghostDemande.bailleur_nom && (
+              <p className="text-xs text-gray-400">→ {ghostDemande.bailleur_nom}</p>
+            )}
+            {ghostDemande.montant_demande != null && (
+              <p className="text-xs font-medium text-gray-700 mt-1">{ghostDemande.montant_demande.toLocaleString("fr-FR")} €</p>
+            )}
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
 
 function DossierCard({
   demande: d,
-  isDragging,
-  onDragStart,
-  onDragEnd,
+  isFading,
+  onPointerDown,
 }: {
   demande: DemandeCard;
-  isDragging: boolean;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: () => void;
+  isFading: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
 }) {
   const ageDays = Math.floor((Date.now() - new Date(d.created_at).getTime()) / 86400000);
   const ageLabel = ageDays === 0 ? "aujourd'hui" : ageDays === 1 ? "hier" : `${ageDays}j`;
@@ -266,23 +323,20 @@ function DossierCard({
 
   return (
     <div
-      draggable={true}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+      onPointerDown={onPointerDown}
+      style={{ cursor: 'grab', touchAction: 'none' }}
       className={[
-        "bg-white rounded-xl border p-4 transition-all duration-150",
-        isDragging ? "opacity-40 scale-95 shadow-lg" : "hover:shadow-md hover:-translate-y-0.5",
-        isAccepte ? "border-green-200 hover:border-green-300" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
+        "bg-white rounded-xl border p-4 select-none transition-all duration-150",
+        isFading ? "opacity-25 scale-95" : "hover:shadow-md hover:-translate-y-0.5",
+        isAccepte ? "border-green-200" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
       ].join(" ")}
     >
-      {/* Grip handle */}
       <div className="flex items-start justify-between gap-2 mb-1">
         <p className="font-semibold text-sm text-gray-900 leading-snug">{d.associations?.nom ?? "—"}</p>
         <div className="flex items-center gap-1.5 shrink-0">
           {isAccepte && <span className="text-green-500 text-sm">✓</span>}
           {isRefuse && <span className="text-red-400 text-sm">✗</span>}
-          <span className="text-gray-200 text-xs leading-none select-none" title="Glisser pour déplacer">⠿</span>
+          <span className="text-gray-300 text-sm">⠿</span>
         </div>
       </div>
 
@@ -316,10 +370,8 @@ function DossierCard({
           <span className="text-xs text-gray-400">{ageLabel}</span>
           <Link
             href={`/demandes/${d.id}`}
-            draggable={false}
-            onClick={e => e.stopPropagation()}
-            onDragStart={e => { e.stopPropagation(); e.preventDefault(); }}
-            style={{ WebkitUserDrag: 'none', cursor: 'pointer' } as React.CSSProperties}
+            onPointerDown={e => e.stopPropagation()}
+            style={{ cursor: 'pointer' }}
             className="text-xs text-blue-500 hover:text-blue-700 font-medium shrink-0"
           >
             Ouvrir →
