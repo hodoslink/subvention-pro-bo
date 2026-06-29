@@ -58,9 +58,12 @@ export default function SuiviPage() {
   };
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
+    // Ensure the event target is the card itself, not a child link/button
+    e.dataTransfer.setData('text/plain', id); // text/plain = max compat
     e.dataTransfer.setData('demandeId', id);
     e.dataTransfer.effectAllowed = 'move';
-    setDraggingId(id);
+    // Small delay so React state update doesn't kill the drag ghost
+    setTimeout(() => setDraggingId(id), 0);
   };
 
   const handleDragEnd = () => {
@@ -80,7 +83,7 @@ export default function SuiviPage() {
 
   const handleDrop = (e: React.DragEvent, statut: string) => {
     e.preventDefault();
-    const id = e.dataTransfer.getData('demandeId');
+    const id = e.dataTransfer.getData('demandeId') || e.dataTransfer.getData('text/plain');
     if (id) moveCard(id, statut as Statut);
     setDragOver(null);
     setDraggingId(null);
@@ -263,11 +266,12 @@ function DossierCard({
 
   return (
     <div
-      draggable
+      draggable={true}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       className={[
-        "bg-white rounded-xl border p-4 transition-all duration-150 select-none",
+        "bg-white rounded-xl border p-4 transition-all duration-150",
         isDragging ? "opacity-40 scale-95 shadow-lg" : "hover:shadow-md hover:-translate-y-0.5",
         isAccepte ? "border-green-200 hover:border-green-300" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
       ].join(" ")}
@@ -314,7 +318,8 @@ function DossierCard({
             href={`/demandes/${d.id}`}
             draggable={false}
             onClick={e => e.stopPropagation()}
-            onDragStart={e => e.preventDefault()}
+            onDragStart={e => { e.stopPropagation(); e.preventDefault(); }}
+            style={{ WebkitUserDrag: 'none', cursor: 'pointer' } as React.CSSProperties}
             className="text-xs text-blue-500 hover:text-blue-700 font-medium shrink-0"
           >
             Ouvrir →
