@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { STATUTS, STATUTS_ACTIFS } from "@/lib/statuts";
 import type { Demande, Statut } from "@/lib/supabase";
@@ -7,58 +7,125 @@ import Link from "next/link";
 
 type DemandeCard = Demande & { associations: { nom: string; ville?: string } };
 
-const STEP_META: Record<string, { hint: string; icon: string; action: string }> = {
-  collecte: {
-    icon: "📂",
-    hint: "Rassemblez les documents",
-    action: "Compléter les infos",
-  },
-  redaction: {
-    icon: "✏️",
-    hint: "Rédigez la demande",
-    action: "Ouvrir et rédiger",
-  },
-  controle_compta: {
-    icon: "🔢",
-    hint: "Validez les chiffres avec le comptable",
-    action: "Vérifier les budgets",
-  },
-  depose: {
-    icon: "📬",
-    hint: "Dossier envoyé — surveillez votre messagerie",
-    action: "Voir le dossier",
-  },
-  decision_attente: {
-    icon: "⏳",
-    hint: "Attendez la décision, relancez si besoin",
-    action: "Voir le dossier",
-  },
+const STEP_META: Record<string, { hint: string; icon: string }> = {
+  collecte:         { icon: "📂", hint: "Rassemblez les documents" },
+  redaction:        { icon: "✏️", hint: "Rédigez la demande" },
+  controle_compta:  { icon: "🔢", hint: "Validez les chiffres avec le comptable" },
+  depose:           { icon: "📬", hint: "Dossier envoyé — surveillez votre messagerie" },
+  decision_attente: { icon: "⏳", hint: "Attendez la décision, relancez si besoin" },
+};
+
+const COL_COLORS: Record<string, { header: string; badge: string; active: string }> = {
+  collecte:         { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600",   active: "bg-slate-100 ring-2 ring-slate-300" },
+  redaction:        { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700",     active: "bg-blue-100 ring-2 ring-blue-300" },
+  controle_compta:  { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700",   active: "bg-amber-100 ring-2 ring-amber-300" },
+  depose:           { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700", active: "bg-purple-100 ring-2 ring-purple-300" },
+  decision_attente: { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700", active: "bg-orange-100 ring-2 ring-orange-300" },
 };
 
 export default function SuiviPage() {
   const [demandes, setDemandes] = useState<DemandeCard[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Pointer-based DnD (no HTML5 drag API — cross-browser reliable)
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const dropTargetRef = useRef<string | null>(null);
+  const demandesRef = useRef(demandes);
+  const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => { demandesRef.current = demandes; }, [demandes]);
+
   useEffect(() => {
     fetch("/api/demandes")
-      .then((r) => r.json())
-      .then(({ demandes: d }) => {
-        setDemandes(d || []);
-        setLoading(false);
-      });
+      .then(r => r.json())
+      .then(({ demandes: d }) => { setDemandes(d || []); setLoading(false); });
   }, []);
 
-  const byStatut = (s: Statut) => demandes.filter((d) => d.statut === s);
-  const enCours = demandes.filter((d) =>
-    (STATUTS_ACTIFS as string[]).includes(d.statut)
-  );
+  useEffect(() => {
+    if (!dragId) return;
+    let activated = false;
+
+    const onMove = (e: PointerEvent) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (!activated && Math.hypot(dx, dy) < 6) return;
+      if (!activated) {
+        activated = true;
+        setIsDragging(true);
+        document.body.style.setProperty('cursor', 'grabbing', 'important');
+        document.body.style.userSelect = 'none';
+      }
+      setDragPos({ x: e.clientX, y: e.clientY });
+
+      let found: string | null = null;
+      for (const [statut, el] of Object.entries(columnRefs.current)) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          found = statut;
+          break;
+        }
+      }
+      dropTargetRef.current = found;
+      setDropTarget(found);
+    };
+
+    const onUp = () => {
+      const target = dropTargetRef.current;
+      if (activated && target) {
+        const prev = demandesRef.current.find(d => d.id === dragId);
+        if (prev && prev.statut !== target) {
+          const prevStatut = prev.statut;
+          setDemandes(all => all.map(d => d.id === dragId ? { ...d, statut: target as Statut } : d));
+          fetch(`/api/demandes/${dragId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ statut: target }),
+          }).then(res => {
+            if (!res.ok) setDemandes(all => all.map(d => d.id === dragId ? { ...d, statut: prevStatut } : d));
+          });
+        }
+      }
+      setDragId(null);
+      setIsDragging(false);
+      setDropTarget(null);
+      dropTargetRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [dragId]);
+
+  const startDrag = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    setDragId(id);
+    setDragPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const byStatut = (s: Statut) => demandes.filter(d => d.statut === s);
+  const enCours = demandes.filter(d => (STATUTS_ACTIFS as string[]).includes(d.statut));
   const acceptees = byStatut("accepte");
   const refusees = byStatut("refuse");
+  const totalMontantAccepte = acceptees.reduce((s, d) => s + (d.montant_obtenu ?? d.montant_demande ?? 0), 0);
 
-  const totalMontantAccepte = acceptees.reduce(
-    (sum, d) => sum + (d.montant_obtenu ?? d.montant_demande ?? 0),
-    0
-  );
+  const ghostDemande = dragId ? demandes.find(d => d.id === dragId) : null;
 
   if (loading) {
     return (
@@ -79,51 +146,32 @@ export default function SuiviPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">Suivi des dossiers</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {enCours.length === 0
-                ? "Aucun dossier en cours"
-                : `${enCours.length} dossier${enCours.length > 1 ? "s" : ""} en cours`}
+              {enCours.length === 0 ? "Aucun dossier en cours" : `${enCours.length} dossier${enCours.length > 1 ? "s" : ""} en cours`}
               {acceptees.length > 0 && (
                 <span className="ml-2 text-green-600 font-medium">
-                  · {acceptees.length} accepté{acceptees.length > 1 ? "s" : ""}{" "}
-                  {totalMontantAccepte > 0 &&
-                    `— ${totalMontantAccepte.toLocaleString("fr-FR")} € obtenus`}{" "}
-                  🎉
+                  · {acceptees.length} accepté{acceptees.length > 1 ? "s" : ""}
+                  {totalMontantAccepte > 0 && ` — ${totalMontantAccepte.toLocaleString("fr-FR")} € obtenus`} 🎉
                 </span>
               )}
             </p>
           </div>
-          <Link
-            href="/nouvelle-demande"
-            className="btn btn-primary text-sm shrink-0"
-          >
-            + Nouvelle demande
-          </Link>
+          <Link href="/nouvelle-demande" className="btn btn-primary text-sm shrink-0">+ Nouvelle demande</Link>
         </div>
 
-        {/* Pipeline barre de progression */}
+        {/* Barre progression */}
         {demandes.length > 0 && (
           <div className="px-6 py-3 bg-white border-b border-gray-100">
             <div className="flex items-center gap-1 max-w-2xl">
               {STATUTS_ACTIFS.map((s, i) => {
                 const count = byStatut(s as Statut).length;
-                const total = enCours.length;
-                const pct = total > 0 ? (count / total) * 100 : 0;
-                const colors: Record<string, string> = {
-                  collecte: "bg-slate-400",
-                  redaction: "bg-blue-400",
-                  controle_compta: "bg-amber-400",
-                  depose: "bg-purple-400",
-                  decision_attente: "bg-orange-400",
-                };
+                const pct = enCours.length > 0 ? (count / enCours.length) * 100 : 0;
+                const colors: Record<string, string> = { collecte: "bg-slate-400", redaction: "bg-blue-400", controle_compta: "bg-amber-400", depose: "bg-purple-400", decision_attente: "bg-orange-400" };
                 return (
                   <div key={s} className="flex items-center gap-1 flex-1">
                     {i > 0 && <div className="text-gray-200 text-xs">›</div>}
                     <div className="flex-1 relative group">
                       <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${colors[s]}`}
-                          style={{ width: `${Math.max(pct, count > 0 ? 20 : 0)}%` }}
-                        />
+                        <div className={`h-full rounded-full transition-all ${colors[s]}`} style={{ width: `${Math.max(pct, count > 0 ? 20 : 0)}%` }} />
                       </div>
                       <div className="absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center gap-1 bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-10">
                         {STATUTS[s as Statut].label} · {count}
@@ -133,64 +181,61 @@ export default function SuiviPage() {
                 );
               })}
             </div>
-            <p className="text-xs text-gray-400 mt-1.5">
-              Progression globale du pipeline
-            </p>
+            <p className="text-xs text-gray-400 mt-1.5">Glissez les cartes pour changer le statut</p>
           </div>
         )}
 
         {/* Kanban */}
         <div className="flex-1 overflow-x-auto">
           <div className="flex gap-4 p-6 items-start min-w-max">
-            {STATUTS_ACTIFS.map((statut) => {
+            {STATUTS_ACTIFS.map(statut => {
               const items = byStatut(statut as Statut);
               const s = STATUTS[statut as Statut];
               const meta = STEP_META[statut];
-
-              const colColors: Record<string, { header: string; badge: string }> = {
-                collecte:         { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600" },
-                redaction:        { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700" },
-                controle_compta:  { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700" },
-                depose:           { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700" },
-                decision_attente: { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700" },
-              };
-              const col = colColors[statut];
+              const col = COL_COLORS[statut];
+              const isTarget = dropTarget === statut && isDragging;
 
               return (
                 <div key={statut} className="w-72 flex-shrink-0 flex flex-col gap-3">
-                  {/* Column header */}
                   <div className={`rounded-xl border p-3.5 ${col.header}`}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <span className="text-base">{meta.icon}</span>
-                        <span className="font-semibold text-sm text-gray-800">
-                          {s.label}
-                        </span>
+                        <span className="font-semibold text-sm text-gray-800">{s.label}</span>
                       </div>
-                      <span
-                        className={`text-xs font-bold rounded-full px-2 py-0.5 ${col.badge}`}
-                      >
-                        {items.length}
-                      </span>
+                      <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${col.badge}`}>{items.length}</span>
                     </div>
                     <p className="text-xs text-gray-500 leading-relaxed">{meta.hint}</p>
                   </div>
 
-                  {/* Cards */}
-                  {items.length === 0 ? (
-                    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center">
-                      <p className="text-xs text-gray-400">Aucun dossier ici</p>
-                    </div>
-                  ) : (
-                    items.map((d) => (
-                      <DossierCard key={d.id} demande={d} actionLabel={meta.action} />
-                    ))
-                  )}
+                  {/* Drop zone */}
+                  <div
+                    ref={el => { columnRefs.current[statut] = el; }}
+                    className={[
+                      "flex flex-col gap-3 min-h-24 rounded-xl p-1.5 -m-1.5 transition-all duration-100",
+                      isTarget ? col.active : "",
+                    ].join(" ")}
+                  >
+                    {items.length === 0 ? (
+                      <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${isTarget ? 'border-current bg-white/50' : 'border-gray-200'}`}>
+                        <p className="text-xs text-gray-400">{isTarget ? '↓ Déposer ici' : 'Aucun dossier'}</p>
+                      </div>
+                    ) : (
+                      items.map(d => (
+                        <DossierCard
+                          key={d.id}
+                          demande={d}
+                          isFading={dragId === d.id && isDragging}
+                          onPointerDown={e => startDrag(e, d.id)}
+                        />
+                      ))
+                    )}
+                  </div>
                 </div>
               );
             })}
 
-            {/* Colonne clôturées */}
+            {/* Clôturées */}
             {(acceptees.length > 0 || refusees.length > 0) && (
               <div className="w-72 flex-shrink-0 flex flex-col gap-3">
                 <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
@@ -203,115 +248,136 @@ export default function SuiviPage() {
                       {acceptees.length + refusees.length}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400">Dossiers ayant reçu une décision</p>
+                  <p className="text-xs text-gray-400">Décision reçue — modifier via la fiche</p>
                 </div>
-                {acceptees.map((d) => (
-                  <DossierCard key={d.id} demande={d} actionLabel="Voir la décision" />
-                ))}
-                {refusees.map((d) => (
-                  <DossierCard key={d.id} demande={d} actionLabel="Voir la décision" />
+                {[...acceptees, ...refusees].map(d => (
+                  <DossierCard
+                    key={d.id}
+                    demande={d}
+                    isFading={dragId === d.id && isDragging}
+                    onPointerDown={e => startDrag(e, d.id)}
+                  />
                 ))}
               </div>
             )}
           </div>
 
-          {/* Empty state global */}
           {demandes.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center px-6">
               <div className="text-5xl">📭</div>
               <div>
                 <p className="font-semibold text-gray-700">Aucun dossier pour l'instant</p>
-                <p className="text-sm text-gray-400 mt-1 max-w-xs">
-                  Créez votre première demande de subvention pour démarrer le suivi.
-                </p>
+                <p className="text-sm text-gray-400 mt-1 max-w-xs">Créez votre première demande de subvention pour démarrer le suivi.</p>
               </div>
-              <Link href="/nouvelle-demande" className="btn btn-primary">
-                + Créer un dossier
-              </Link>
+              <Link href="/nouvelle-demande" className="btn btn-primary">+ Créer un dossier</Link>
             </div>
           )}
         </div>
       </div>
+
+      {/* Ghost card — follows cursor during drag */}
+      {isDragging && ghostDemande && (
+        <div
+          style={{
+            position: 'fixed',
+            left: dragPos.x - dragOffsetRef.current.x,
+            top: dragPos.y - dragOffsetRef.current.y,
+            width: 288,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            transform: 'rotate(2deg) scale(1.03)',
+            opacity: 0.92,
+          }}
+        >
+          <div className="bg-white rounded-xl border border-blue-400 shadow-2xl p-4">
+            <p className="font-semibold text-sm text-gray-900 mb-1">{ghostDemande.associations?.nom}</p>
+            {ghostDemande.titre_projet && (
+              <p className="text-xs text-gray-500 line-clamp-1 mb-2">{ghostDemande.titre_projet}</p>
+            )}
+            {ghostDemande.bailleur_nom && (
+              <p className="text-xs text-gray-400">→ {ghostDemande.bailleur_nom}</p>
+            )}
+            {ghostDemande.montant_demande != null && (
+              <p className="text-xs font-medium text-gray-700 mt-1">{ghostDemande.montant_demande.toLocaleString("fr-FR")} €</p>
+            )}
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
 
 function DossierCard({
   demande: d,
-  actionLabel,
+  isFading,
+  onPointerDown,
 }: {
   demande: DemandeCard;
-  actionLabel: string;
+  isFading: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
 }) {
-  const ageDays = Math.floor(
-    (Date.now() - new Date(d.created_at).getTime()) / 86400000
-  );
-  const ageLabel =
-    ageDays === 0 ? "aujourd'hui" : ageDays === 1 ? "hier" : `${ageDays}j`;
-
+  const ageDays = Math.floor((Date.now() - new Date(d.created_at).getTime()) / 86400000);
+  const ageLabel = ageDays === 0 ? "aujourd'hui" : ageDays === 1 ? "hier" : `${ageDays}j`;
   const isAccepte = d.statut === "accepte";
   const isRefuse = d.statut === "refuse";
 
   return (
-    <Link href={`/demandes/${d.id}`} className="block group">
-      <div
-        className={[
-          "bg-white rounded-xl border p-4 transition-all duration-150",
-          "hover:shadow-md hover:-translate-y-0.5",
-          isAccepte
-            ? "border-green-200 hover:border-green-400"
-            : isRefuse
-            ? "border-red-100 hover:border-red-300 opacity-75"
-            : "border-gray-200 hover:border-blue-300",
-        ].join(" ")}
-      >
-        {/* Association */}
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <p className="font-semibold text-sm text-gray-900 leading-snug group-hover:text-blue-700 transition-colors">
-            {d.associations?.nom ?? "—"}
-          </p>
-          {isAccepte && <span className="text-green-500 text-sm shrink-0">✓</span>}
-          {isRefuse && <span className="text-red-400 text-sm shrink-0">✗</span>}
-        </div>
-
-        {/* Projet */}
-        {d.titre_projet && (
-          <p className="text-xs text-gray-500 leading-snug line-clamp-2 mb-3">
-            {d.titre_projet}
-          </p>
-        )}
-
-        {/* Méta */}
-        <div className="space-y-1 mb-3">
-          {d.bailleur_nom && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-300 text-xs">→</span>
-              <span className="text-xs text-gray-500 truncate">{d.bailleur_nom}</span>
-            </div>
-          )}
-          {d.montant_demande != null && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-300 text-xs">€</span>
-              <span className="text-xs font-medium text-gray-700">
-                {d.montant_demande.toLocaleString("fr-FR")} €
-              </span>
-              {isAccepte && d.montant_obtenu != null && (
-                <span className="text-xs text-green-600 font-medium">
-                  → {d.montant_obtenu.toLocaleString("fr-FR")} € obtenu
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-          <span className="text-xs text-gray-400 truncate max-w-[110px]">
-            {d.presta_redacteur ? `@${d.presta_redacteur}` : <span className="italic">non assigné</span>}
-          </span>
-          <span className="text-xs text-gray-400">{ageLabel}</span>
+    <div
+      onPointerDown={onPointerDown}
+      style={{ cursor: 'grab', touchAction: 'none' }}
+      className={[
+        "bg-white rounded-xl border p-4 select-none transition-all duration-150",
+        isFading ? "opacity-25 scale-95" : "hover:shadow-md hover:-translate-y-0.5",
+        isAccepte ? "border-green-200" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <p className="font-semibold text-sm text-gray-900 leading-snug">{d.associations?.nom ?? "—"}</p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isAccepte && <span className="text-green-500 text-sm">✓</span>}
+          {isRefuse && <span className="text-red-400 text-sm">✗</span>}
+          <span className="text-gray-300 text-sm">⠿</span>
         </div>
       </div>
-    </Link>
+
+      {d.titre_projet && (
+        <p className="text-xs text-gray-500 leading-snug line-clamp-2 mb-3">{d.titre_projet}</p>
+      )}
+
+      <div className="space-y-1 mb-3">
+        {d.bailleur_nom && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-300 text-xs">→</span>
+            <span className="text-xs text-gray-500 truncate">{d.bailleur_nom}</span>
+          </div>
+        )}
+        {d.montant_demande != null && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-300 text-xs">€</span>
+            <span className="text-xs font-medium text-gray-700">{d.montant_demande.toLocaleString("fr-FR")} €</span>
+            {isAccepte && d.montant_obtenu != null && (
+              <span className="text-xs text-green-600 font-medium">→ {d.montant_obtenu.toLocaleString("fr-FR")} € obtenu</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+        <span className="text-xs text-gray-400 truncate max-w-[100px]">
+          {d.presta_redacteur ? `@${d.presta_redacteur}` : <span className="italic">non assigné</span>}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">{ageLabel}</span>
+          <Link
+            href={`/demandes/${d.id}`}
+            onPointerDown={e => e.stopPropagation()}
+            style={{ cursor: 'pointer' }}
+            className="text-xs text-blue-500 hover:text-blue-700 font-medium shrink-0"
+          >
+            Ouvrir →
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

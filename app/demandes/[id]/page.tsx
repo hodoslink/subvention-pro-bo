@@ -49,6 +49,10 @@ type FullDraft = {
   bilan_subvention_anterieure: string;
   bilan_nb_beneficiaires_reel: string;
   bilan_activites: string;
+  contact_nom: string;
+  contact_role: string;
+  contact_email: string;
+  contact_telephone: string;
 };
 
 const DEP_CATS = [
@@ -123,6 +127,10 @@ function draftFromDemande(d: FullDemande): FullDraft {
     bilan_subvention_anterieure: d.bilan_subvention_anterieure?.toString() || '',
     bilan_nb_beneficiaires_reel: d.bilan_nb_beneficiaires_reel?.toString() || '',
     bilan_activites: d.bilan_activites || '',
+    contact_nom: d.contact_nom || '',
+    contact_role: d.contact_role || '',
+    contact_email: d.contact_email || '',
+    contact_telephone: d.contact_telephone || '',
   };
 }
 
@@ -211,6 +219,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         bilan_subvention_anterieure: draft.bilan_subvention_anterieure ? Number(draft.bilan_subvention_anterieure) : null,
         bilan_nb_beneficiaires_reel: draft.bilan_nb_beneficiaires_reel ? Number(draft.bilan_nb_beneficiaires_reel) : null,
         bilan_activites: draft.bilan_activites || null,
+        contact_nom: draft.contact_nom || null,
+        contact_role: draft.contact_role || null,
+        contact_email: draft.contact_email || null,
+        contact_telephone: draft.contact_telephone || null,
         budget_previsionnel_json: budgetV2,
         details_json: detailsJson,
       }),
@@ -535,6 +547,50 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 </SectionCard>
               )}
 
+              {/* Contact référent de la demande */}
+              <SectionCard title="Contact référent">
+                {(() => {
+                  const hasDemandeContact = !!(demande.contact_nom || demande.contact_email);
+                  const contactNom = demande.contact_nom || asso.contact_nom;
+                  const contactRole = demande.contact_role || asso.contact_role;
+                  const contactEmail = demande.contact_email || asso.contact_email;
+                  const contactTel = demande.contact_telephone || asso.contact_telephone;
+                  return editMode ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-400">Laissez vide pour utiliser le contact de l'association ({asso.contact_nom}).</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Nom</label>
+                          <input className="field-input text-sm" value={draft.contact_nom} onChange={e => setField('contact_nom', e.target.value)} placeholder={asso.contact_nom} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Rôle / fonction</label>
+                          <input className="field-input text-sm" value={draft.contact_role} onChange={e => setField('contact_role', e.target.value)} placeholder={asso.contact_role || 'Président·e…'} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Email</label>
+                        <input type="email" className="field-input text-sm" value={draft.contact_email} onChange={e => setField('contact_email', e.target.value)} placeholder={asso.contact_email} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Téléphone</label>
+                        <input type="tel" className="field-input text-sm" value={draft.contact_telephone} onChange={e => setField('contact_telephone', e.target.value)} placeholder={asso.contact_telephone || '06 XX XX XX XX'} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {!hasDemandeContact && (
+                        <p className="text-xs text-gray-400 mb-2">Contact de l'association (aucun contact spécifique défini pour cette demande)</p>
+                      )}
+                      <Row label="Nom" value={contactNom} />
+                      <Row label="Rôle" value={contactRole} />
+                      <Row label="Email" value={contactEmail} />
+                      <Row label="Téléphone" value={contactTel} />
+                    </div>
+                  );
+                })()}
+              </SectionCard>
+
               {/* Association — lecture seule */}
               <SectionCard title="Association">
                 <div className="space-y-2.5">
@@ -542,9 +598,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   <Row label="Adresse" value={[asso.adresse, asso.code_postal, asso.ville].filter(Boolean).join(', ')} />
                   <Row label="RNA" value={asso.rna} />
                   <Row label="SIRET" value={asso.siret} />
-                  <Row label="Contact" value={`${asso.contact_nom}${asso.contact_role ? ` (${asso.contact_role})` : ''}`} />
-                  <Row label="Email" value={asso.contact_email} />
                   <Row label="Membres" value={asso.nb_membres?.toString()} />
+                  <Link href={`/associations/${asso.id}`} className="text-xs text-blue-600 hover:underline">Voir la fiche association →</Link>
                 </div>
               </SectionCard>
 

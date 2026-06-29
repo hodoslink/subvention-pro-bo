@@ -26,6 +26,10 @@ const patchSchema = z.object({
   details_json: z.any().optional(),
   taux_horaire_valorisation_benevolat: z.number().min(0).max(1000).optional().nullable(),
   qpv_codes: z.array(z.string()).optional().nullable(),
+  contact_nom: z.string().max(200).optional().nullable(),
+  contact_role: z.string().max(200).optional().nullable(),
+  contact_email: z.string().email().max(300).optional().nullable(),
+  contact_telephone: z.string().max(30).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

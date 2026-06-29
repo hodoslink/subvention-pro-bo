@@ -83,6 +83,10 @@ export type Demande = {
   date_decision?: string;
   montant_obtenu?: number;
   notes?: string;
+  contact_nom?: string;
+  contact_role?: string;
+  contact_email?: string;
+  contact_telephone?: string;
   // joined
   associations?: Association;
 };
