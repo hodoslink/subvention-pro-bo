@@ -24,6 +24,8 @@ const patchSchema = z.object({
   bilan_activites: z.string().max(5000).optional().nullable(),
   budget_previsionnel_json: z.any().optional(),
   details_json: z.any().optional(),
+  taux_horaire_valorisation_benevolat: z.number().min(0).max(1000).optional().nullable(),
+  qpv_codes: z.array(z.string()).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

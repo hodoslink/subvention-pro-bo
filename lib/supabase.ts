@@ -95,6 +95,66 @@ export type JournalEntry = {
   detail?: string;
 };
 
+export type BudgetLigneDB = {
+  id: string;
+  created_at: string;
+  demande_id: string;
+  sens: 'charge' | 'produit';
+  compte: string;
+  libelle_compte?: string;
+  sous_categorie?: string;
+  bailleur_detail?: string;
+  quantite?: number;
+  prix_unitaire?: number;
+  montant: number;
+  est_charge_commune: boolean;
+  cle_repartition?: string;
+  est_valorisation_benevolat: boolean;
+  precisions?: string;
+  piece_justificative_url?: string;
+};
+
+export type BudgetEquilibre = {
+  demande_id: string;
+  total_charges: number;
+  total_produits: number;
+  ecart: number;
+  est_equilibre: boolean;
+};
+
+export type TauxFinancement = {
+  demande_id: string;
+  bailleur_detail: string;
+  montant_demande_ce_bailleur: number;
+  total_produits_hors_nature: number;
+  pourcentage_du_projet: number;
+  depasse_plafond_80: boolean;
+};
+
+export type ControleQualite = {
+  id: string;
+  created_at: string;
+  demande_id: string;
+  categorie: 'coherence_donnees' | 'coherence_recit' | 'conformite_administrative';
+  libelle_controle: string;
+  est_valide: boolean;
+  valide_par?: string;
+  valide_le?: string;
+  commentaire?: string;
+};
+
+export type PieceRequise = {
+  id: string;
+  created_at: string;
+  demande_id: string;
+  type_piece: string;
+  libelle: string;
+  obligatoire: boolean;
+  statut: 'manquant' | 'fourni' | 'perime' | 'non_applicable';
+  document_id?: string;
+  date_limite_validite?: string;
+};
+
 // Server-side client (service role — full access, use only in API routes)
 export function getSupabaseServer() {
   return createClient(
