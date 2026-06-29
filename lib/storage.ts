@@ -10,10 +10,20 @@ export function isAnalysable(mimeType: string | null | undefined): boolean {
   return ANALYSABLE_TYPES.includes(mimeType);
 }
 
+async function ensureBucket(): Promise<void> {
+  const supabase = getSupabaseServer();
+  const { error } = await supabase.storage.createBucket(BUCKET, { public: false });
+  // "already exists" n'est pas une vraie erreur
+  if (error && !error.message.includes('already exists') && !error.message.includes('duplicate')) {
+    throw new Error(`Impossible de créer le bucket : ${error.message}`);
+  }
+}
+
 export async function uploadToStorage(
   path: string,
   file: File
 ): Promise<string> {
+  await ensureBucket();
   const supabase = getSupabaseServer();
   const bytes = await file.arrayBuffer();
   const { error } = await supabase.storage
