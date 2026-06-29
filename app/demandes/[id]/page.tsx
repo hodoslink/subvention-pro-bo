@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, use } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
+import { DocumentList } from "@/components/DocumentList";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
 import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson } from "@/lib/supabase";
 import Link from "next/link";
@@ -545,6 +546,12 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   <Row label="Email" value={asso.contact_email} />
                   <Row label="Membres" value={asso.nb_membres?.toString()} />
                 </div>
+              </SectionCard>
+
+              {/* Documents de la demande */}
+              <SectionCard title="Documents de la demande">
+                <p className="text-xs text-gray-400 mb-3">Dossiers N-1, devis, formulaires bailleur… Cliquez sur « 🤖 Analyser » pour auto-compléter les champs.</p>
+                <DocumentList entityType="demande" entityId={id} onApplied={loadDemande} />
               </SectionCard>
             </div>
 
