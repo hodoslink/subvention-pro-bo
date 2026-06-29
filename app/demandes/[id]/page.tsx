@@ -622,15 +622,18 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    <Row label="Titre" value={demande.titre_projet} />
-                    <Row label="Bailleur" value={demande.bailleur_nom ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})` : ''}` : undefined} />
-                    {demande.annee_millesime && <Row label="Millésime" value={demande.annee_millesime.toString()} />}
-                    {demande.plateforme_identifiant_dossier && <Row label="Réf. plateforme" value={demande.plateforme_identifiant_dossier} />}
-                    <Row label="Période" value={`${demande.periode_debut || '?'} → ${demande.periode_fin || '?'}`} />
-                    <Row label="Montant demandé" value={demande.montant_demande ? `${fmt(demande.montant_demande)} €` : undefined} />
-                    <Row label="Thématique" value={det.thematique} />
-                    {demande.objectif_projet && <TextBlock label="Objectif" text={demande.objectif_projet} />}
-                    {demande.public_beneficiaire && <Row label="Public" value={`${demande.public_beneficiaire}${demande.nb_beneficiaires_estime ? ` (${demande.nb_beneficiaires_estime} pers.)` : ''}`} />}
+                    <RowF label="Titre" value={demande.titre_projet} />
+                    <RowF label="Bailleur" value={demande.bailleur_nom ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})` : ''}` : null} />
+                    <RowF label="Millésime" value={demande.annee_millesime?.toString() ?? null} />
+                    <RowF label="Réf. plateforme" value={demande.plateforme_identifiant_dossier ?? null} />
+                    <RowF label="Période" value={`${demande.periode_debut || '—'} → ${demande.periode_fin || '—'}`} />
+                    <RowF label="Montant demandé" value={demande.montant_demande ? `${fmt(demande.montant_demande)} €` : null} />
+                    <RowF label="Thématique" value={det.thematique ?? null} />
+                    {demande.objectif_projet
+                      ? <TextBlock label="Objectif" text={demande.objectif_projet} />
+                      : <div><p className="text-xs text-gray-500 mb-1">Objectif</p><p className="text-sm text-gray-300 italic">—</p></div>}
+                    <RowF label="Public" value={demande.public_beneficiaire ? `${demande.public_beneficiaire}${demande.nb_beneficiaires_estime ? ` (${demande.nb_beneficiaires_estime} pers.)` : ''}` : null} />
+                    <RowF label="Nb bénéficiaires estimés" value={!demande.public_beneficiaire && demande.nb_beneficiaires_estime ? `${demande.nb_beneficiaires_estime} personnes` : null} />
                   </div>
                 )}
               </SectionCard>
@@ -651,9 +654,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {det.description_besoins ? <TextBlock label="Besoins identifiés" text={det.description_besoins} /> : <EmptyHint text="Besoins non renseignés" />}
-                    {det.description_actions && <TextBlock label="Déroulement" text={det.description_actions} />}
-                    {det.partenariats && <TextBlock label="Partenariats" text={det.partenariats} />}
+                    <TextBlockF label="Besoins identifiés" text={det.description_besoins} />
+                    <TextBlockF label="Déroulement" text={det.description_actions} />
+                    <TextBlockF label="Partenariats" text={det.partenariats} />
                   </div>
                 )}
               </SectionCard>
@@ -679,11 +682,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {det.beneficiaires_profil ? <TextBlock label="Profil" text={det.beneficiaires_profil} /> : <EmptyHint text="Profil non renseigné" />}
-                    <Row label="Tranches d'âge" value={det.beneficiaires_age} />
-                    <Row label="Répartition sexe" value={det.beneficiaires_sexe} />
-                    <Row label="QPV / ZUS" value={det.localisation_qpv} />
-                    {demande.nb_beneficiaires_estime && <Row label="Nombre estimé" value={`${demande.nb_beneficiaires_estime} personnes`} />}
+                    <TextBlockF label="Profil" text={det.beneficiaires_profil} />
+                    <RowF label="Tranches d'âge" value={det.beneficiaires_age} />
+                    <RowF label="Répartition sexe" value={det.beneficiaires_sexe} />
+                    <RowF label="QPV / ZUS" value={det.localisation_qpv} />
+                    <RowF label="Nombre estimé" value={demande.nb_beneficiaires_estime ? `${demande.nb_beneficiaires_estime} personnes` : null} />
                   </div>
                 )}
               </SectionCard>
@@ -710,12 +713,20 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : (
                   <div className="space-y-2.5">
                     <div className="flex gap-6 text-sm">
-                      {det.nb_benevoles && <span><span className="text-gray-400 mr-1">Bénévoles</span><strong>{det.nb_benevoles}</strong></span>}
-                      {det.etpt_benevoles && <span><span className="text-gray-400 mr-1">ETPT</span><strong>{det.etpt_benevoles}</strong></span>}
-                      {det.nb_salaries && <span><span className="text-gray-400 mr-1">Salariés</span><strong>{det.nb_salaries}</strong></span>}
-                      {!det.nb_benevoles && !det.nb_salaries && <EmptyHint text="Moyens humains non renseignés" />}
+                      <span>
+                        <span className="text-gray-400 mr-1">Bénévoles</span>
+                        <strong className={det.nb_benevoles ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.nb_benevoles || '—'}</strong>
+                      </span>
+                      <span>
+                        <span className="text-gray-400 mr-1">ETPT</span>
+                        <strong className={det.etpt_benevoles ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.etpt_benevoles || '—'}</strong>
+                      </span>
+                      <span>
+                        <span className="text-gray-400 mr-1">Salariés</span>
+                        <strong className={det.nb_salaries ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.nb_salaries || '—'}</strong>
+                      </span>
                     </div>
-                    {det.moyens_description && <TextBlock label="Description" text={det.moyens_description} />}
+                    <TextBlockF label="Description" text={det.moyens_description} />
                   </div>
                 )}
               </SectionCard>
@@ -729,7 +740,33 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     onChange={(dep, rec) => setDraft(prev => prev ? { ...prev, depenses: dep, recettes: rec } : prev)}
                   />
                 ) : (
-                  <BudgetView depenses={viewDep} recettes={viewRec} totalDep={totalDep} totalRec={totalRec} />
+                  <>
+                    <BudgetView depenses={viewDep} recettes={viewRec} totalDep={totalDep} totalRec={totalRec} />
+                    {demande.montant_demande != null && (() => {
+                      const ecart = demande.montant_demande - totalDep;
+                      const ecartColor = Math.abs(ecart) < 0.01
+                        ? 'bg-green-50 text-green-700'
+                        : ecart > 0
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-gray-50 text-gray-600';
+                      return (
+                        <div className="border-t border-gray-100 pt-3 mt-1 space-y-1.5">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Montant demandé</span>
+                            <span className="font-medium tabular-nums">{fmt(demande.montant_demande)} €</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Total dépenses prévisionnelles</span>
+                            <span className="font-medium tabular-nums">{fmt(totalDep)} €</span>
+                          </div>
+                          <div className={`flex justify-between text-sm font-semibold px-2.5 py-1.5 rounded-lg ${ecartColor}`}>
+                            <span>Écart (demandé − budget)</span>
+                            <span className="tabular-nums">{ecart > 0 ? '+' : ''}{fmt(ecart)} €</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
                 )}
               </SectionCard>
 
@@ -741,7 +778,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </Field>
                 ) : det.indicateurs_evaluation ? (
                   <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{det.indicateurs_evaluation}</p>
-                ) : <EmptyHint text="Aucun indicateur renseigné" />}
+                ) : <p className="text-sm text-gray-300 italic">—</p>}
               </SectionCard>
 
               {/* Bilan renouvellement */}
@@ -763,9 +800,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      <Row label="Subvention reçue" value={demande.bilan_subvention_anterieure ? `${fmt(demande.bilan_subvention_anterieure)} €` : undefined} />
-                      <Row label="Bénéficiaires réels" value={demande.bilan_nb_beneficiaires_reel?.toString()} />
-                      {demande.bilan_activites && <TextBlock label="Bilan" text={demande.bilan_activites} />}
+                      <RowF label="Subvention reçue" value={demande.bilan_subvention_anterieure ? `${fmt(demande.bilan_subvention_anterieure)} €` : null} />
+                      <RowF label="Bénéficiaires réels" value={demande.bilan_nb_beneficiaires_reel?.toString() ?? null} />
+                      <TextBlockF label="Bilan des actions" text={demande.bilan_activites} />
                     </div>
                   )}
                 </SectionCard>
@@ -806,10 +843,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       {!hasDemandeContact && (
                         <p className="text-xs text-gray-400 mb-2">Contact de l'association (aucun contact spécifique défini pour cette demande)</p>
                       )}
-                      <Row label="Nom" value={contactNom} />
-                      <Row label="Rôle" value={contactRole} />
-                      <Row label="Email" value={contactEmail} />
-                      <Row label="Téléphone" value={contactTel} />
+                      <RowF label="Nom" value={contactNom} />
+                      <RowF label="Rôle" value={contactRole} />
+                      <RowF label="Email" value={contactEmail} />
+                      <RowF label="Téléphone" value={contactTel} />
                     </div>
                   );
                 })()}
@@ -1014,11 +1051,33 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+function RowF({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="flex justify-between gap-4 text-sm">
+      <span className="text-gray-500 shrink-0">{label}</span>
+      <span className={value ? 'text-gray-900 text-right' : 'text-gray-300 text-right italic'}>
+        {value || '—'}
+      </span>
+    </div>
+  );
+}
+
 function TextBlock({ label, text }: { label: string; text: string }) {
   return (
     <div>
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{text}</p>
+    </div>
+  );
+}
+
+function TextBlockF({ label, text }: { label: string; text?: string | null }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      {text
+        ? <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{text}</p>
+        : <p className="text-sm text-gray-300 italic">—</p>}
     </div>
   );
 }
