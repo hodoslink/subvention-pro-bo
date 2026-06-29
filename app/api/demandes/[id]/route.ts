@@ -85,9 +85,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
   }
 
-  // Sync auto-generated budget lines when details_json is saved
-  if (parsed.data.details_json) {
-    const lignesAuto = genererLignesAuto(parsed.data.details_json);
+  // Sync auto-generated budget lines when details_json or montant_demande is saved
+  if (parsed.data.details_json !== undefined || parsed.data.montant_demande !== undefined) {
+    const lignesAuto = genererLignesAuto(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((data as any).details_json ?? {}) as Parameters<typeof genererLignesAuto>[0],
+      {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        montant_demande: (data as any).montant_demande ?? null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        bailleur_nom: (data as any).bailleur_nom ?? null,
+      }
+    );
 
     const { data: existingLines } = await supabase
       .from('budget_lignes')

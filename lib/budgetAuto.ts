@@ -4,6 +4,13 @@ import type { DetailsJson } from './supabase';
 // Valeur au 1er novembre 2024 : 11,88 €/h
 export const SMIC_HORAIRE_BRUT_DEFAUT = 11.88;
 
+export type PatternSuggestion = {
+  cle: string;
+  label: string;
+  description: string;
+  section_cible: string;
+};
+
 export type LigneAutoGeneree = {
   cle_generation: string;
   sens: 'charge' | 'produit';
@@ -27,7 +34,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function genererLignesAuto(details: DetailsJson): LigneAutoGeneree[] {
+export function genererLignesAuto(
+  details: DetailsJson,
+  context?: { montant_demande?: number | null; bailleur_nom?: string | null }
+): LigneAutoGeneree[] {
   const lignes: LigneAutoGeneree[] = [];
 
   // ── 1. Bénévolat ───────────────────────────────────────────────────────────
@@ -239,5 +249,85 @@ export function genererLignesAuto(details: DetailsJson): LigneAutoGeneree[] {
     });
   }
 
+  // ── 11. Montant demandé à ce bailleur ────────────────────────────────────
+  if (context?.montant_demande && context.montant_demande > 0) {
+    const nomBailleur = context.bailleur_nom ?? null;
+    lignes.push({
+      cle_generation: 'auto_montant_demande_bailleur',
+      sens: 'produit',
+      compte: '74',
+      sous_categorie: 'Subvention sollicitée (ce dossier)',
+      bailleur_detail: nomBailleur ?? undefined,
+      montant: context.montant_demande,
+      precisions: nomBailleur ? `Demande en cours — ${nomBailleur}` : 'Demande en cours',
+      est_valorisation_benevolat: false,
+      statut_financement: 'demande',
+    });
+  }
+
   return lignes;
+}
+
+export function detecterPatternsInactifs(details: DetailsJson): PatternSuggestion[] {
+  const suggestions: PatternSuggestion[] = [];
+
+  if (!details.a_des_prestataires || !details.prestataires?.some(p => p.nom_type)) {
+    suggestions.push({
+      cle: 'a_des_prestataires',
+      label: 'Prestataires / intervenants rémunérés',
+      description: 'Avez-vous des prestataires ou intervenants rémunérés liés à ce projet ?',
+      section_cible: 'Prestataires et moyens matériels',
+    });
+  }
+
+  if (!details.achats_recurrents?.some(a => a.nom_type)) {
+    suggestions.push({
+      cle: 'achats_recurrents',
+      label: 'Achats et fournitures récurrents',
+      description: 'Y a-t-il des achats ou fournitures récurrents liés à ce projet ?',
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  if (!details.location_salle_payante) {
+    suggestions.push({
+      cle: 'location_salle_payante',
+      label: 'Location de salle',
+      description: 'Avez-vous un loyer pour un local ou une salle lié à ce projet ?',
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  if (!details.assurance_dediee) {
+    suggestions.push({
+      cle: 'assurance_dediee',
+      label: 'Assurance dédiée',
+      description: "Le projet dispose-t-il d'une assurance spécifique ?",
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  if (!details.deplacements_estimes) {
+    suggestions.push({
+      cle: 'deplacements_estimes',
+      label: 'Déplacements et missions',
+      description: 'Y a-t-il des frais de déplacement liés à ce projet ?',
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  if (!details.cotisations_actives) {
+    suggestions.push({
+      cle: 'cotisations_actives',
+      label: 'Cotisations / prestations des bénéficiaires',
+      description: 'Les bénéficiaires paient-ils des cotisations ou participations ?',
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  return suggestions;
+}
+
+export function calculerEcartAEquilibrer(totalProduits: number, totalCharges: number): number {
+  return Math.round((totalProduits - totalCharges) * 100) / 100;
 }

@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState, useMemo, use } from "react";
+import { useEffect, useState, useMemo, use, useRef } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
-import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB } from "@/lib/supabase";
-import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree } from "@/lib/budgetAuto";
+import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB, BudgetEquilibre, TauxFinancement } from "@/lib/supabase";
+import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree, detecterPatternsInactifs, calculerEcartAEquilibrer } from "@/lib/budgetAuto";
 import Link from "next/link";
 
 type FullDemande = Demande & { associations: Association };
@@ -221,6 +221,13 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [savingDraft, setSavingDraft] = useState(false);
   const [savedDraft, setSavedDraft] = useState(false);
   const [budgetLignes, setBudgetLignes] = useState<BudgetLigneDB[]>([]);
+  const [budgetEquilibre, setBudgetEquilibre] = useState<BudgetEquilibre | null>(null);
+  const [budgetTaux, setBudgetTaux] = useState<TauxFinancement[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [integrationEnCours, setIntegrationEnCours] = useState(false);
+
+  const chargesCardRef = useRef<HTMLDivElement>(null);
+  const prestataireCardRef = useRef<HTMLDivElement>(null);
 
   const [enrichLoading, setEnrichLoading] = useState(false);
   const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
@@ -266,8 +273,12 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 
   const loadBudgetLignes = () =>
     fetch(`/api/demandes/${id}/budget-lignes`)
-      .then(r => r.ok ? r.json() : { lignes: [] })
-      .then(({ lignes }) => setBudgetLignes(lignes || []));
+      .then(r => r.ok ? r.json() : { lignes: [], equilibre: null, taux: [] })
+      .then(({ lignes, equilibre, taux }) => {
+        setBudgetLignes(lignes || []);
+        setBudgetEquilibre(equilibre ?? null);
+        setBudgetTaux(taux ?? []);
+      });
 
   const loadGroupe = () =>
     fetch(`/api/demandes/${id}/groupe-pluriannuel`)
@@ -317,33 +328,78 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const addAutreBailleur = () =>
     setDraft(prev => prev ? { ...prev, autres_bailleurs_sollicites: [...prev.autres_bailleurs_sollicites, { nom_bailleur: '', montant: '', statut: '' }] } : prev);
 
+  const activerPatternEtScroller = (cle: string, sectionCible: string) => {
+    setEditMode(true);
+    if (cle === 'location_salle_payante') setField('location_salle_payante', true);
+    else if (cle === 'assurance_dediee') setField('assurance_dediee', true);
+    else if (cle === 'deplacements_estimes') setField('deplacements_estimes', true);
+    else if (cle === 'cotisations_actives') setField('cotisations_actives', true);
+    else if (cle === 'a_des_prestataires') {
+      setField('a_des_prestataires', true);
+      setDraft(prev => {
+        if (!prev || prev.prestataires.length > 0) return prev;
+        return { ...prev, prestataires: [{ nom_type: '', nb_seances_ou_ateliers: '', tarif_unitaire: '' }] };
+      });
+    } else if (cle === 'achats_recurrents') {
+      setDraft(prev => {
+        if (!prev || prev.achats_recurrents.length > 0) return prev;
+        return { ...prev, achats_recurrents: [{ nom_type: '', quantite_annuelle: '', cout_unitaire: '' }] };
+      });
+    }
+    setTimeout(() => {
+      const ref = sectionCible === 'Prestataires et moyens matériels' ? prestataireCardRef : chargesCardRef;
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
+  const integrerMontantDemande = async () => {
+    if (!demande) return;
+    setIntegrationEnCours(true);
+    await fetch(`/api/demandes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        montant_demande: demande.montant_demande ?? null,
+        details_json: demande.details_json ?? {},
+      }),
+    });
+    await loadBudgetLignes();
+    setIntegrationEnCours(false);
+  };
+
   const lignesAutoPreview = useMemo(() => {
     if (!draft || !editMode) return [] as LigneAutoGeneree[];
-    return genererLignesAuto({
-      nb_benevoles: draft.nb_benevoles || undefined,
-      heures_benevolat_semaine: draft.heures_benevolat_semaine || undefined,
-      taux_horaire_valorisation: draft.taux_horaire_valorisation || undefined,
-      a_des_prestataires: draft.a_des_prestataires,
-      prestataires: draft.prestataires,
-      nb_salaries: draft.nb_salaries || undefined,
-      cout_salarial_annuel_estime: draft.cout_salarial_annuel_estime || undefined,
-      locaux_mis_a_disposition: draft.locaux_mis_a_disposition,
-      locaux_bailleur: draft.locaux_bailleur || undefined,
-      locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
-      achats_recurrents: draft.achats_recurrents,
-      location_salle_payante: draft.location_salle_payante,
-      location_salle_cout_annuel: draft.location_salle_cout_annuel || undefined,
-      location_salle_precisions: draft.location_salle_precisions || undefined,
-      assurance_dediee: draft.assurance_dediee,
-      assurance_cout_annuel: draft.assurance_cout_annuel || undefined,
-      deplacements_estimes: draft.deplacements_estimes,
-      deplacements_frequence_mensuelle: draft.deplacements_frequence_mensuelle || undefined,
-      deplacements_cout_moyen: draft.deplacements_cout_moyen || undefined,
-      cotisations_actives: draft.cotisations_actives,
-      nb_adherents_payants: draft.nb_adherents_payants || undefined,
-      tarif_moyen_annuel: draft.tarif_moyen_annuel || undefined,
-      autres_bailleurs_sollicites: draft.autres_bailleurs_sollicites.filter(b => b.nom_bailleur && b.statut) as DetailsJson['autres_bailleurs_sollicites'],
-    });
+    return genererLignesAuto(
+      {
+        nb_benevoles: draft.nb_benevoles || undefined,
+        heures_benevolat_semaine: draft.heures_benevolat_semaine || undefined,
+        taux_horaire_valorisation: draft.taux_horaire_valorisation || undefined,
+        a_des_prestataires: draft.a_des_prestataires,
+        prestataires: draft.prestataires,
+        nb_salaries: draft.nb_salaries || undefined,
+        cout_salarial_annuel_estime: draft.cout_salarial_annuel_estime || undefined,
+        locaux_mis_a_disposition: draft.locaux_mis_a_disposition,
+        locaux_bailleur: draft.locaux_bailleur || undefined,
+        locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
+        achats_recurrents: draft.achats_recurrents,
+        location_salle_payante: draft.location_salle_payante,
+        location_salle_cout_annuel: draft.location_salle_cout_annuel || undefined,
+        location_salle_precisions: draft.location_salle_precisions || undefined,
+        assurance_dediee: draft.assurance_dediee,
+        assurance_cout_annuel: draft.assurance_cout_annuel || undefined,
+        deplacements_estimes: draft.deplacements_estimes,
+        deplacements_frequence_mensuelle: draft.deplacements_frequence_mensuelle || undefined,
+        deplacements_cout_moyen: draft.deplacements_cout_moyen || undefined,
+        cotisations_actives: draft.cotisations_actives,
+        nb_adherents_payants: draft.nb_adherents_payants || undefined,
+        tarif_moyen_annuel: draft.tarif_moyen_annuel || undefined,
+        autres_bailleurs_sollicites: draft.autres_bailleurs_sollicites.filter(b => b.nom_bailleur && b.statut) as DetailsJson['autres_bailleurs_sollicites'],
+      },
+      {
+        montant_demande: draft.montant_demande ? Number(draft.montant_demande) : null,
+        bailleur_nom: draft.bailleur_nom || null,
+      }
+    );
   }, [draft, editMode]);
 
   const saveDossier = async () => {
@@ -1024,6 +1080,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
               </SectionCard>
 
               {/* Prestataires et moyens matériels */}
+              <div ref={prestataireCardRef}>
               <SectionCard title="Prestataires et moyens matériels">
                 {editMode ? (
                   <div className="space-y-5">
@@ -1112,8 +1169,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 )}
               </SectionCard>
+              </div>
 
               {/* Charges et recettes additionnelles */}
+              <div ref={chargesCardRef}>
               <SectionCard title="Charges et recettes additionnelles">
                 {editMode ? (
                   <div className="space-y-5">
@@ -1233,6 +1292,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 )}
               </SectionCard>
+              </div>
 
               {/* Aperçu des lignes budgétaires auto-générées (visible en mode édition) */}
               {editMode && lignesAutoPreview.length > 0 && (
@@ -1250,28 +1310,78 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : budgetLignes.length > 0 ? (
                   <>
                     <BudgetLignesView lignes={budgetLignes} demandeId={id} />
-                    {demande.montant_demande != null && (() => {
-                      const totalLignesCharge = budgetLignes.filter(l => l.sens === 'charge').reduce((s, l) => s + l.montant, 0);
-                      const ecart = demande.montant_demande - totalLignesCharge;
-                      const ecartColor = Math.abs(ecart) < 0.01
-                        ? 'bg-green-50 text-green-700'
-                        : ecart > 0
-                          ? 'bg-amber-50 text-amber-700'
-                          : 'bg-gray-50 text-gray-600';
+                    {/* Bouton d'intégration du montant demandé si ligne absente */}
+                    {demande.montant_demande != null && demande.montant_demande > 0 &&
+                     !budgetLignes.some(l => l.cle_generation === 'auto_montant_demande_bailleur') && (
+                      <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5 flex items-center justify-between gap-3 mt-1">
+                        <p className="text-sm text-amber-800">
+                          Le montant demandé ({fmt(demande.montant_demande)} €) n&apos;est pas encore intégré au budget comme ligne de recette.
+                        </p>
+                        <button
+                          onClick={integrerMontantDemande}
+                          disabled={integrationEnCours}
+                          className="shrink-0 text-xs font-medium bg-amber-600 text-white rounded px-2.5 py-1.5 hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {integrationEnCours ? '…' : 'Ajouter'}
+                        </button>
+                      </div>
+                    )}
+                    {/* Équilibre global depuis v_budget_equilibre */}
+                    {budgetEquilibre && (
+                      <BudgetEquilibreBlock equilibre={budgetEquilibre} taux={budgetTaux} />
+                    )}
+                    {/* Pistes à vérifier */}
+                    {budgetEquilibre && Math.abs(budgetEquilibre.ecart) > 0.01 && (() => {
+                      const det = (demande.details_json || {}) as DetailsJson;
+                      const patterns = detecterPatternsInactifs(det);
+                      const ecartVal = calculerEcartAEquilibrer(budgetEquilibre.total_produits, budgetEquilibre.total_charges);
+                      if (patterns.length === 0) {
+                        return (
+                          <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5 mt-1">
+                            <p className="text-sm text-amber-800">
+                              {ecartVal > 0
+                                ? `Il manque ${fmt(ecartVal)} € de charges documentées pour équilibrer ce budget.`
+                                : `Les charges dépassent les produits de ${fmt(Math.abs(ecartVal))} €.`}
+                              {' '}Aucun poste habituel n&apos;est détecté comme manquant — vérifiez le montant demandé ou saisissez une ligne manuellement.
+                            </p>
+                          </div>
+                        );
+                      }
                       return (
-                        <div className="border-t border-gray-100 pt-3 mt-1 space-y-1.5">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Montant demandé</span>
-                            <span className="font-medium tabular-nums">{fmt(demande.montant_demande)} €</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Total charges</span>
-                            <span className="font-medium tabular-nums">{fmt(totalLignesCharge)} €</span>
-                          </div>
-                          <div className={`flex justify-between text-sm font-semibold px-2.5 py-1.5 rounded-lg ${ecartColor}`}>
-                            <span>Écart (demandé − charges)</span>
-                            <span className="tabular-nums">{ecart > 0 ? '+' : ''}{fmt(ecart)} €</span>
-                          </div>
+                        <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5 mt-1 space-y-2">
+                          <button
+                            onClick={() => setSuggestionsOpen(o => !o)}
+                            className="w-full flex items-center justify-between text-sm font-medium text-amber-800"
+                          >
+                            <span>
+                              💡 Pistes à vérifier —{' '}
+                              {ecartVal > 0
+                                ? `il manque ${fmt(ecartVal)} € de charges`
+                                : `les charges dépassent de ${fmt(Math.abs(ecartVal))} €`}
+                            </span>
+                            <span className="text-amber-500 text-xs">{suggestionsOpen ? '▲ Masquer' : '▼ Voir'}</span>
+                          </button>
+                          {suggestionsOpen && (
+                            <ul className="space-y-1.5 pt-1 border-t border-amber-200">
+                              {patterns.map(p => (
+                                <li key={p.cle} className="flex items-start gap-2">
+                                  <button
+                                    onClick={() => activerPatternEtScroller(p.cle, p.section_cible)}
+                                    className="text-left group flex-1"
+                                  >
+                                    <span className="text-xs font-medium text-amber-700 group-hover:underline">{p.label}</span>
+                                    <span className="block text-xs text-amber-600">{p.description}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => activerPatternEtScroller(p.cle, p.section_cible)}
+                                    className="shrink-0 text-xs text-amber-600 border border-amber-300 rounded px-1.5 py-0.5 hover:bg-amber-100"
+                                  >
+                                    Ouvrir →
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       );
                     })()}
@@ -1279,7 +1389,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : (
                   <>
                     <BudgetView depenses={viewDep} recettes={viewRec} totalDep={totalDep} totalRec={totalRec} />
-                    {demande.montant_demande != null && (() => {
+                    {budgetEquilibre ? (
+                      <BudgetEquilibreBlock equilibre={budgetEquilibre} taux={budgetTaux} />
+                    ) : demande.montant_demande != null && (() => {
                       const ecart = demande.montant_demande - totalDep;
                       const ecartColor = Math.abs(ecart) < 0.01
                         ? 'bg-green-50 text-green-700'
@@ -1900,6 +2012,44 @@ function BudgetLignesView({ lignes, demandeId }: { lignes: BudgetLigneDB[]; dema
           le budget par ligne de compte →
         </Link>
       </p>
+    </div>
+  );
+}
+
+/* ── Budget équilibre block ──────────────────────────────────────── */
+function BudgetEquilibreBlock({ equilibre, taux }: { equilibre: BudgetEquilibre; taux: TauxFinancement[] }) {
+  const ecartColor = equilibre.est_equilibre
+    ? 'bg-green-50 text-green-700'
+    : equilibre.ecart > 0
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-red-50 text-red-700';
+  const fmtE = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  const tauxCe = taux[0] ?? null;
+  return (
+    <div className="border-t border-gray-100 pt-3 mt-1 space-y-1.5">
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-500">Total charges</span>
+        <span className="font-medium tabular-nums">{fmtE(equilibre.total_charges)} €</span>
+      </div>
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-500">Total produits</span>
+        <span className="font-medium tabular-nums">{fmtE(equilibre.total_produits)} €</span>
+      </div>
+      <div className={`flex justify-between text-sm font-semibold px-2.5 py-1.5 rounded-lg ${ecartColor}`}>
+        <span>{equilibre.est_equilibre ? '✓ Budget équilibré' : 'Écart global'}</span>
+        {!equilibre.est_equilibre && (
+          <span className="tabular-nums">{equilibre.ecart > 0 ? '+' : ''}{fmtE(equilibre.ecart)} €</span>
+        )}
+      </div>
+      {tauxCe && (
+        <div className={`flex justify-between text-sm px-2.5 py-1 rounded-lg ${tauxCe.depasse_plafond_80 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+          <span>Part de ce bailleur dans les produits</span>
+          <span className="font-semibold tabular-nums">
+            {tauxCe.pourcentage_du_projet.toFixed(1)} %
+            {tauxCe.depasse_plafond_80 && ' ⚠️ > 80 %'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
