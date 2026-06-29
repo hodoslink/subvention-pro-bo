@@ -116,6 +116,22 @@ select.field-input { cursor: pointer; }
 }
 .animate-in { animation: fadeIn 0.2s ease both; }
 
+/* ── Drag & drop ────────────────────────────────────────── */
+[draggable="true"] {
+  cursor: -webkit-grab;
+  cursor: grab;
+}
+[draggable="true"]:active {
+  cursor: -webkit-grabbing;
+  cursor: grabbing;
+}
+/* Empêche les enfants de casser le drag du parent */
+[draggable="true"] a,
+[draggable="true"] button {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
 /* ── Utilities ──────────────────────────────────────────── */
 .line-clamp-2 {
   display: -webkit-box;

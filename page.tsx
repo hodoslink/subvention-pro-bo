@@ -268,7 +268,6 @@ function DossierCard({
       onDragEnd={onDragEnd}
       className={[
         "bg-white rounded-xl border p-4 transition-all duration-150 select-none",
-        "cursor-grab active:cursor-grabbing",
         isDragging ? "opacity-40 scale-95 shadow-lg" : "hover:shadow-md hover:-translate-y-0.5",
         isAccepte ? "border-green-200 hover:border-green-300" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
       ].join(" ")}
@@ -313,7 +312,9 @@ function DossierCard({
           <span className="text-xs text-gray-400">{ageLabel}</span>
           <Link
             href={`/demandes/${d.id}`}
+            draggable={false}
             onClick={e => e.stopPropagation()}
+            onDragStart={e => e.preventDefault()}
             className="text-xs text-blue-500 hover:text-blue-700 font-medium shrink-0"
           >
             Ouvrir →
