@@ -49,6 +49,10 @@ type FormState = {
   nb_beneficiaires_estime: string;
   periode_debut: string;
   periode_fin: string;
+  annee_millesime: string;
+  // Pluriannuel
+  est_pluriannuel: boolean;
+  pluriannuel_nb_annees: "2" | "3" | "4";
 };
 
 type DirigeantTrouve = { nom: string; prenoms: string; qualite: string };
@@ -61,6 +65,8 @@ const initialState: FormState = {
   bailleur_type: "ville", bailleur_nom: "", montant_demande: "",
   titre_projet: "", objectif_projet: "", public_beneficiaire: "",
   nb_beneficiaires_estime: "", periode_debut: "", periode_fin: "",
+  annee_millesime: String(new Date().getFullYear()),
+  est_pluriannuel: false, pluriannuel_nb_annees: "3",
 };
 
 type BudgetLigne = { poste: string; montant: string };
@@ -95,37 +101,42 @@ export default function NouvelleDemande() {
       const assoData = await assoRes.json();
       if (!assoRes.ok) throw new Error(assoData.error || "Erreur association");
 
+      const demandeBody: Record<string, unknown> = {
+        association_id: assoData.association.id,
+        type_demande: form.type_demande,
+        bilan_subvention_anterieure: form.type_demande === "renouvellement" && form.bilan_subvention_anterieure
+          ? Number(form.bilan_subvention_anterieure)
+          : null,
+        bilan_activites: form.type_demande === "renouvellement" ? form.bilan_activites : "",
+        bilan_nb_beneficiaires_reel: form.type_demande === "renouvellement" && form.bilan_nb_beneficiaires_reel
+          ? Number(form.bilan_nb_beneficiaires_reel)
+          : null,
+        bailleur_type: form.bailleur_type,
+        bailleur_nom: form.bailleur_nom,
+        montant_demande: form.est_pluriannuel ? null : (form.montant_demande ? Number(form.montant_demande) : null),
+        titre_projet: form.titre_projet,
+        objectif_projet: form.objectif_projet,
+        public_beneficiaire: form.public_beneficiaire,
+        nb_beneficiaires_estime: form.nb_beneficiaires_estime ? Number(form.nb_beneficiaires_estime) : null,
+        periode_debut: form.periode_debut || null,
+        periode_fin: form.periode_fin || null,
+        annee_millesime: form.annee_millesime ? Number(form.annee_millesime) : null,
+        budget_previsionnel_json: budget.filter((b) => b.poste),
+      };
+
+      if (form.est_pluriannuel) {
+        demandeBody.pluriannuel_nb_annees = Number(form.pluriannuel_nb_annees);
+      }
+
       const demandeRes = await fetch("/api/demandes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          association_id: assoData.association.id,
-          type_demande: form.type_demande,
-          bilan_subvention_anterieure: form.type_demande === "renouvellement" && form.bilan_subvention_anterieure
-            ? Number(form.bilan_subvention_anterieure)
-            : null,
-          bilan_activites: form.type_demande === "renouvellement" ? form.bilan_activites : "",
-          bilan_nb_beneficiaires_reel: form.type_demande === "renouvellement" && form.bilan_nb_beneficiaires_reel
-            ? Number(form.bilan_nb_beneficiaires_reel)
-            : null,
-          bailleur_type: form.bailleur_type,
-          bailleur_nom: form.bailleur_nom,
-          montant_demande: form.montant_demande ? Number(form.montant_demande) : null,
-          titre_projet: form.titre_projet,
-          objectif_projet: form.objectif_projet,
-          public_beneficiaire: form.public_beneficiaire,
-          nb_beneficiaires_estime: form.nb_beneficiaires_estime
-            ? Number(form.nb_beneficiaires_estime)
-            : null,
-          periode_debut: form.periode_debut || null,
-          periode_fin: form.periode_fin || null,
-          budget_previsionnel_json: budget.filter((b) => b.poste),
-        }),
+        body: JSON.stringify(demandeBody),
       });
       const demandeData = await demandeRes.json();
       if (!demandeRes.ok) throw new Error(demandeData.error || "Erreur demande");
 
-      router.push("/merci");
+      router.push(`/demandes/${demandeData.demande.id}`);
     } catch (e: any) {
       setError(e.message || "Une erreur est survenue, réessayez dans un instant.");
     } finally {
@@ -399,6 +410,70 @@ export default function NouvelleDemande() {
               </div>
             )}
 
+            {/* Pluriannuel */}
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-sapin"
+                  checked={form.est_pluriannuel}
+                  onChange={e => update({ est_pluriannuel: e.target.checked })}
+                />
+                <span className="text-sm font-medium text-ink">
+                  Cette demande est pluriannuelle (Cerfa multi-années)
+                  <span className="block text-xs font-normal text-ink-soft mt-0.5">
+                    Le bailleur s'engage sur plusieurs années en une seule décision — jusqu'à 4 ans sur le Cerfa 12156*06.
+                  </span>
+                </span>
+              </label>
+              {form.est_pluriannuel && (
+                <div className="ml-7 grid grid-cols-2 gap-3">
+                  <Field label="Nombre d'années">
+                    <select
+                      className="field-input"
+                      value={form.pluriannuel_nb_annees}
+                      onChange={e => update({ pluriannuel_nb_annees: e.target.value as "2" | "3" | "4" })}
+                    >
+                      <option value="2">2 ans</option>
+                      <option value="3">3 ans</option>
+                      <option value="4">4 ans</option>
+                    </select>
+                  </Field>
+                  <Field label="Première année">
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={form.annee_millesime}
+                      min={2020}
+                      max={2035}
+                      onChange={e => update({ annee_millesime: e.target.value })}
+                    />
+                  </Field>
+                  <p className="col-span-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    {Number(form.pluriannuel_nb_annees)} fiches demande seront créées automatiquement ({
+                      Array.from({ length: Number(form.pluriannuel_nb_annees) }, (_, i) =>
+                        (Number(form.annee_millesime) || new Date().getFullYear()) + i
+                      ).join(', ')
+                    }). Le montant demandé peut différer par année — vous le saisirez sur chaque fiche.
+                  </p>
+                </div>
+              )}
+              {!form.est_pluriannuel && (
+                <div className="ml-7">
+                  <Field label="Millésime (année)">
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={form.annee_millesime}
+                      min={2020}
+                      max={2035}
+                      onChange={e => update({ annee_millesime: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3">
               {[
                 { v: "ville", l: "Ville / mairie" },
@@ -470,17 +545,19 @@ export default function NouvelleDemande() {
                   onChange={(e) => update({ nb_beneficiaires_estime: e.target.value })}
                 />
               </Field>
-              <Field label="Montant demandé (€)">
-                <input
-                  type="number"
-                  className="field-input"
-                  placeholder="Ex. 800"
-                  value={form.montant_demande}
-                  min={0}
-                  max={1000000}
-                  onChange={(e) => update({ montant_demande: e.target.value })}
-                />
-              </Field>
+              {!form.est_pluriannuel && (
+                <Field label="Montant demandé (€)">
+                  <input
+                    type="number"
+                    className="field-input"
+                    placeholder="Ex. 800"
+                    value={form.montant_demande}
+                    min={0}
+                    max={1000000}
+                    onChange={(e) => update({ montant_demande: e.target.value })}
+                  />
+                </Field>
+              )}
             </div>
             <div className="field-row">
               <Field label="Le projet démarre quand ?" hint="Date de lancement des actions.">
@@ -598,12 +675,13 @@ export default function NouvelleDemande() {
               ]} />
               <SummaryBlock title="Projet" rows={[
                 ["Nature", form.type_demande === "renouvellement" ? "Renouvellement" : "Première demande"],
+                ["Engagement", form.est_pluriannuel ? `Pluriannuel — ${form.pluriannuel_nb_annees} ans (${Array.from({ length: Number(form.pluriannuel_nb_annees) }, (_, i) => (Number(form.annee_millesime) || new Date().getFullYear()) + i).join(', ')})` : "Annuel"],
                 ["Bailleur", `${form.bailleur_type === "ville" ? "Ville" : "Département"} — ${form.bailleur_nom}`],
                 ["Titre", form.titre_projet],
                 ["Description", form.objectif_projet],
                 ["Bénéficiaires", `${form.nb_beneficiaires_estime || "—"} personnes — ${form.public_beneficiaire || "—"}`],
                 ["Période", `${form.periode_debut || "—"} → ${form.periode_fin || "—"}`],
-                ["Montant demandé", form.montant_demande ? `${form.montant_demande} €` : "—"],
+                ["Montant demandé", form.est_pluriannuel ? "À saisir par année" : (form.montant_demande ? `${form.montant_demande} €` : "—")],
               ]} />
               {form.type_demande === "renouvellement" && (
                 <SummaryBlock title="Bilan année précédente" rows={[

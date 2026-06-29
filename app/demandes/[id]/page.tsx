@@ -87,6 +87,11 @@ type FullDraft = {
   tarif_moyen_annuel: string;
   // Autres bailleurs
   autres_bailleurs_sollicites: AutreBailleurDraft[];
+  // Cerfa déclaratifs
+  forme_subvention: 'numeraire' | 'nature' | '';
+  objet_demande: 'fonctionnement_global' | 'projet_action' | '';
+  recrutement_envisage: boolean;
+  recrutement_etpt: string;
 };
 
 const DEP_CATS = [
@@ -192,6 +197,10 @@ function draftFromDemande(d: FullDemande): FullDraft {
     nb_adherents_payants: det.nb_adherents_payants || '',
     tarif_moyen_annuel: det.tarif_moyen_annuel || '',
     autres_bailleurs_sollicites: det.autres_bailleurs_sollicites?.map(b => ({ ...b })) ?? [],
+    forme_subvention: (det.forme_subvention as FullDraft['forme_subvention']) || '',
+    objet_demande: (det.objet_demande as FullDraft['objet_demande']) || '',
+    recrutement_envisage: det.recrutement_envisage ?? false,
+    recrutement_etpt: det.recrutement_etpt || '',
   };
 }
 
@@ -225,6 +234,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [bailleurs, setBailleurs] = useState<Bailleur[]>([]);
   const [suggestions, setSuggestions] = useState<Array<{ demande_candidate_id: string; titre_projet: string; annee_millesime: number | null; montant_demande: number | null; montant_obtenu: number | null; statut: string }>>([]);
   const [savingCeQuiChange, setSavingCeQuiChange] = useState(false);
+  const [groupeMembers, setGroupeMembers] = useState<Array<{ id: string; titre_projet: string | null; annee_millesime: number | null; statut: string; montant_demande: number | null; montant_obtenu: number | null; numero_annee_dans_groupe: number | null; nombre_annees_total_groupe: number | null }> | null>(null);
+  const [aidesSeuil, setAidesSeuil] = useState<{ total: number; depasse_seuil: boolean } | null>(null);
 
   const loadDemande = async () => {
     const r = await fetch(`/api/demandes/${id}`);
@@ -258,12 +269,23 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       .then(r => r.ok ? r.json() : { lignes: [] })
       .then(({ lignes }) => setBudgetLignes(lignes || []));
 
+  const loadGroupe = () =>
+    fetch(`/api/demandes/${id}/groupe-pluriannuel`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setGroupeMembers(data.membres || null);
+          setAidesSeuil(data.aides_publiques_3ans || null);
+        }
+      });
+
   useEffect(() => {
     loadDemande();
     loadBrief();
     loadBailleurs();
     loadSuggestions();
     loadBudgetLignes();
+    loadGroupe();
   }, [id]);
 
   const setField = <K extends keyof FullDraft>(key: K, val: FullDraft[K]) =>
@@ -369,6 +391,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       nb_adherents_payants: draft.nb_adherents_payants || undefined,
       tarif_moyen_annuel: draft.tarif_moyen_annuel || undefined,
       autres_bailleurs_sollicites: draft.autres_bailleurs_sollicites.filter(b => b.nom_bailleur && b.statut) as DetailsJson['autres_bailleurs_sollicites'],
+      forme_subvention: (draft.forme_subvention || undefined) as DetailsJson['forme_subvention'],
+      objet_demande: (draft.objet_demande || undefined) as DetailsJson['objet_demande'],
+      recrutement_envisage: draft.recrutement_envisage || undefined,
+      recrutement_etpt: draft.recrutement_etpt || undefined,
     };
     await fetch(`/api/demandes/${id}`, {
       method: 'PATCH',
@@ -523,6 +549,70 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
             </button>
             {briefOpen && (
               <div className="px-5 pb-5 space-y-4">
+                {/* Bandeau pluriannuel */}
+                {groupeMembers && groupeMembers.length > 0 && (() => {
+                  const current = groupeMembers.find(m => m.id === id);
+                  const nbTotal = current?.nombre_annees_total_groupe ?? groupeMembers.length;
+                  const STATUT_COLOR: Record<string, string> = {
+                    accepte: 'bg-green-500', refuse: 'bg-red-400', depose: 'bg-blue-500',
+                    decision_attente: 'bg-blue-400', redaction: 'bg-amber-400',
+                    controle_compta: 'bg-amber-500', collecte: 'bg-gray-300',
+                  };
+                  return (
+                    <div className="rounded-lg bg-indigo-50 border border-indigo-100 px-4 py-3">
+                      <p className="text-xs font-semibold text-indigo-700 mb-2">
+                        📅 Engagement pluriannuel — Année {current?.numero_annee_dans_groupe ?? '?'} sur {nbTotal}
+                      </p>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {groupeMembers.map((m, i) => {
+                          const isCurrentYear = m.id === id;
+                          const dot = STATUT_COLOR[m.statut] || 'bg-gray-300';
+                          return (
+                            <div key={m.id} className="flex items-center gap-1">
+                              {i > 0 && <span className="text-indigo-200 text-xs">→</span>}
+                              <Link
+                                href={`/demandes/${m.id}`}
+                                className={['flex flex-col items-center px-2.5 py-1.5 rounded-lg text-xs transition-colors', isCurrentYear ? 'bg-indigo-100 text-indigo-800 font-semibold' : 'text-indigo-600 hover:bg-indigo-100/50'].join(' ')}
+                              >
+                                <span className="flex items-center gap-1">
+                                  <span className={`inline-block w-2 h-2 rounded-full ${dot}`} />
+                                  {m.annee_millesime ?? `Année ${i + 1}`}
+                                </span>
+                                {m.montant_obtenu != null
+                                  ? <span className="text-green-600 font-normal">{m.montant_obtenu.toLocaleString('fr-FR')} €</span>
+                                  : m.montant_demande != null
+                                    ? <span className="text-gray-500 font-normal">{m.montant_demande.toLocaleString('fr-FR')} € dem.</span>
+                                    : <span className="text-gray-400 font-normal">— €</span>
+                                }
+                              </Link>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Alerte 500k€ aides publiques */}
+                {aidesSeuil && aidesSeuil.depasse_seuil && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                    <p className="text-xs font-semibold text-amber-800">
+                      ⚠️ Seuil aides publiques européen dépassé
+                    </p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Total des subventions acceptées sur les 3 derniers exercices : <strong>{aidesSeuil.total.toLocaleString('fr-FR')} €</strong> — dépasse 500 000 €.
+                      La section <strong>7bis</strong> du Cerfa (réglementation européenne des aides d'État) est probablement obligatoire pour ce dossier.
+                    </p>
+                  </div>
+                )}
+                {aidesSeuil && !aidesSeuil.depasse_seuil && aidesSeuil.total > 0 && (
+                  <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2">
+                    <p className="text-xs text-gray-500">
+                      Aides publiques cumulées (3 exercices) : <strong>{aidesSeuil.total.toLocaleString('fr-FR')} €</strong> — sous le seuil de 500 000 €. Section 7bis du Cerfa non requise.
+                    </p>
+                  </div>
+                )}
+
                 {/* Qui est l'association */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -699,8 +789,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         </Field>
                       </div>
                     </div>
-                    {/* Demande précédente */}
-                    {suggestions.length > 0 && (
+                    {/* Demande précédente — masqué si lien déjà établi par groupe pluriannuel */}
+                    {suggestions.length > 0 && !demande.groupe_pluriannuel_id && (
                       <Field label="Demande précédente (renouvellement)">
                         <select
                           className="field-input"
@@ -1226,6 +1316,53 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : det.indicateurs_evaluation ? (
                   <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{det.indicateurs_evaluation}</p>
                 ) : <p className="text-sm text-gray-300 italic">—</p>}
+              </SectionCard>
+
+              {/* Champs déclaratifs Cerfa */}
+              <SectionCard title="Champs déclaratifs Cerfa">
+                {editMode ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Forme de la subvention (Cerfa p.1)">
+                        <select className="field-input" value={draft.forme_subvention} onChange={e => setField('forme_subvention', e.target.value as FullDraft['forme_subvention'])}>
+                          <option value="">—</option>
+                          <option value="numeraire">En numéraire (argent)</option>
+                          <option value="nature">En nature</option>
+                        </select>
+                      </Field>
+                      <Field label="Objet de la demande (Cerfa p.1)">
+                        <select className="field-input" value={draft.objet_demande} onChange={e => setField('objet_demande', e.target.value as FullDraft['objet_demande'])}>
+                          <option value="">—</option>
+                          <option value="fonctionnement_global">Fonctionnement global</option>
+                          <option value="projet_action">Projet / action spécifique</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={draft.recrutement_envisage}
+                          onChange={e => setField('recrutement_envisage', e.target.checked)}
+                        />
+                        <span className="text-sm font-medium text-gray-700">Recrutement envisagé dans le cadre de ce projet ?</span>
+                      </label>
+                      {draft.recrutement_envisage && (
+                        <div className="mt-2 ml-6">
+                          <Field label="Nombre d'ETPT recrutés">
+                            <input className="field-input" value={draft.recrutement_etpt} onChange={e => setField('recrutement_etpt', e.target.value)} placeholder="Ex : 0,5 ETP" />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <RowF label="Forme" value={det.forme_subvention === 'numeraire' ? 'En numéraire' : det.forme_subvention === 'nature' ? 'En nature' : null} />
+                    <RowF label="Objet" value={det.objet_demande === 'fonctionnement_global' ? 'Fonctionnement global' : det.objet_demande === 'projet_action' ? 'Projet / action spécifique' : null} />
+                    <RowF label="Recrutement envisagé" value={det.recrutement_envisage ? `Oui${det.recrutement_etpt ? ` — ${det.recrutement_etpt} ETPT` : ''}` : det.recrutement_envisage === false ? 'Non' : null} />
+                  </div>
+                )}
               </SectionCard>
 
               {/* Bilan renouvellement */}

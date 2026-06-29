@@ -37,6 +37,10 @@ const patchSchema = z.object({
   contact_role: z.string().max(200).optional().nullable(),
   contact_email: z.string().email().max(300).optional().nullable(),
   contact_telephone: z.string().max(30).optional().nullable(),
+  // Pluriannuel
+  groupe_pluriannuel_id: z.string().uuid().optional().nullable(),
+  numero_annee_dans_groupe: z.number().int().min(1).max(4).optional().nullable(),
+  nombre_annees_total_groupe: z.number().int().min(2).max(4).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

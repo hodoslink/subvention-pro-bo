@@ -66,6 +66,11 @@ export type BudgetV2 = {
 };
 
 export type DetailsJson = {
+  // Champs déclaratifs Cerfa (sans génération budgétaire)
+  forme_subvention?: 'numeraire' | 'nature';
+  objet_demande?: 'fonctionnement_global' | 'projet_action';
+  recrutement_envisage?: boolean;
+  recrutement_etpt?: string;
   thematique?: string;
   description_besoins?: string;
   description_actions?: string;
@@ -175,6 +180,10 @@ export type Demande = {
   demande_precedente_id?: string;
   ce_qui_change_cette_annee?: string;
   annee_millesime?: number;
+  // Pluriannuel
+  groupe_pluriannuel_id?: string;
+  numero_annee_dans_groupe?: number;
+  nombre_annees_total_groupe?: number;
   // joined
   associations?: Association;
   bailleurs?: Bailleur;
