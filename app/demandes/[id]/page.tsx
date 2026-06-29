@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
-import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission } from "@/lib/supabase";
+import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB } from "@/lib/supabase";
 import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree } from "@/lib/budgetAuto";
 import Link from "next/link";
 
@@ -22,6 +22,8 @@ type EnrichResult = {
 
 type BudgetRow = { label: string; montant: string };
 type PrestataireDraft = { nom_type: string; nb_seances_ou_ateliers: string; tarif_unitaire: string };
+type AchatDraft = { nom_type: string; quantite_annuelle: string; cout_unitaire: string };
+type AutreBailleurDraft = { nom_bailleur: string; montant: string; statut: 'obtenu' | 'demande' | 'envisage' | '' };
 
 type FullDraft = {
   titre_projet: string;
@@ -70,6 +72,21 @@ type FullDraft = {
   locaux_mis_a_disposition: boolean;
   locaux_bailleur: string;
   locaux_valeur_estimee: string;
+  // Charges & recettes additionnelles
+  achats_recurrents: AchatDraft[];
+  location_salle_payante: boolean;
+  location_salle_cout_annuel: string;
+  location_salle_precisions: string;
+  assurance_dediee: boolean;
+  assurance_cout_annuel: string;
+  deplacements_estimes: boolean;
+  deplacements_frequence_mensuelle: string;
+  deplacements_cout_moyen: string;
+  cotisations_actives: boolean;
+  nb_adherents_payants: string;
+  tarif_moyen_annuel: string;
+  // Autres bailleurs
+  autres_bailleurs_sollicites: AutreBailleurDraft[];
 };
 
 const DEP_CATS = [
@@ -162,6 +179,19 @@ function draftFromDemande(d: FullDemande): FullDraft {
     locaux_mis_a_disposition: det.locaux_mis_a_disposition ?? false,
     locaux_bailleur: det.locaux_bailleur || '',
     locaux_valeur_estimee: det.locaux_valeur_estimee || '',
+    achats_recurrents: det.achats_recurrents ?? [],
+    location_salle_payante: det.location_salle_payante ?? false,
+    location_salle_cout_annuel: det.location_salle_cout_annuel || '',
+    location_salle_precisions: det.location_salle_precisions || '',
+    assurance_dediee: det.assurance_dediee ?? false,
+    assurance_cout_annuel: det.assurance_cout_annuel || '',
+    deplacements_estimes: det.deplacements_estimes ?? false,
+    deplacements_frequence_mensuelle: det.deplacements_frequence_mensuelle || '',
+    deplacements_cout_moyen: det.deplacements_cout_moyen || '',
+    cotisations_actives: det.cotisations_actives ?? false,
+    nb_adherents_payants: det.nb_adherents_payants || '',
+    tarif_moyen_annuel: det.tarif_moyen_annuel || '',
+    autres_bailleurs_sollicites: det.autres_bailleurs_sollicites?.map(b => ({ ...b })) ?? [],
   };
 }
 
@@ -181,6 +211,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [draft, setDraft] = useState<FullDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [savedDraft, setSavedDraft] = useState(false);
+  const [budgetLignes, setBudgetLignes] = useState<BudgetLigneDB[]>([]);
 
   const [enrichLoading, setEnrichLoading] = useState(false);
   const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
@@ -222,11 +253,17 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       .then(r => r.json())
       .then(({ suggestions: s }) => setSuggestions(s || []));
 
+  const loadBudgetLignes = () =>
+    fetch(`/api/demandes/${id}/budget-lignes`)
+      .then(r => r.ok ? r.json() : { lignes: [] })
+      .then(({ lignes }) => setBudgetLignes(lignes || []));
+
   useEffect(() => {
     loadDemande();
     loadBrief();
     loadBailleurs();
     loadSuggestions();
+    loadBudgetLignes();
   }, [id]);
 
   const setField = <K extends keyof FullDraft>(key: K, val: FullDraft[K]) =>
@@ -244,6 +281,20 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const addPrestataire = () =>
     setDraft(prev => prev ? { ...prev, prestataires: [...prev.prestataires, { nom_type: '', nb_seances_ou_ateliers: '', tarif_unitaire: '' }] } : prev);
 
+  const setAchat = (i: number, patch: Partial<AchatDraft>) =>
+    setDraft(prev => prev ? { ...prev, achats_recurrents: prev.achats_recurrents.map((a, j) => j === i ? { ...a, ...patch } : a) } : prev);
+  const removeAchat = (i: number) =>
+    setDraft(prev => prev ? { ...prev, achats_recurrents: prev.achats_recurrents.filter((_, j) => j !== i) } : prev);
+  const addAchat = () =>
+    setDraft(prev => prev ? { ...prev, achats_recurrents: [...prev.achats_recurrents, { nom_type: '', quantite_annuelle: '', cout_unitaire: '' }] } : prev);
+
+  const setAutreBailleur = (i: number, patch: Partial<AutreBailleurDraft>) =>
+    setDraft(prev => prev ? { ...prev, autres_bailleurs_sollicites: prev.autres_bailleurs_sollicites.map((b, j) => j === i ? { ...b, ...patch } : b) } : prev);
+  const removeAutreBailleur = (i: number) =>
+    setDraft(prev => prev ? { ...prev, autres_bailleurs_sollicites: prev.autres_bailleurs_sollicites.filter((_, j) => j !== i) } : prev);
+  const addAutreBailleur = () =>
+    setDraft(prev => prev ? { ...prev, autres_bailleurs_sollicites: [...prev.autres_bailleurs_sollicites, { nom_bailleur: '', montant: '', statut: '' }] } : prev);
+
   const lignesAutoPreview = useMemo(() => {
     if (!draft || !editMode) return [] as LigneAutoGeneree[];
     return genererLignesAuto({
@@ -257,6 +308,19 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       locaux_mis_a_disposition: draft.locaux_mis_a_disposition,
       locaux_bailleur: draft.locaux_bailleur || undefined,
       locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
+      achats_recurrents: draft.achats_recurrents,
+      location_salle_payante: draft.location_salle_payante,
+      location_salle_cout_annuel: draft.location_salle_cout_annuel || undefined,
+      location_salle_precisions: draft.location_salle_precisions || undefined,
+      assurance_dediee: draft.assurance_dediee,
+      assurance_cout_annuel: draft.assurance_cout_annuel || undefined,
+      deplacements_estimes: draft.deplacements_estimes,
+      deplacements_frequence_mensuelle: draft.deplacements_frequence_mensuelle || undefined,
+      deplacements_cout_moyen: draft.deplacements_cout_moyen || undefined,
+      cotisations_actives: draft.cotisations_actives,
+      nb_adherents_payants: draft.nb_adherents_payants || undefined,
+      tarif_moyen_annuel: draft.tarif_moyen_annuel || undefined,
+      autres_bailleurs_sollicites: draft.autres_bailleurs_sollicites.filter(b => b.nom_bailleur && b.statut) as DetailsJson['autres_bailleurs_sollicites'],
     });
   }, [draft, editMode]);
 
@@ -292,6 +356,19 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       locaux_bailleur: draft.locaux_bailleur || undefined,
       locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
       indicateurs_evaluation: draft.indicateurs_evaluation || undefined,
+      achats_recurrents: draft.achats_recurrents.length > 0 ? draft.achats_recurrents.filter(a => a.nom_type) : undefined,
+      location_salle_payante: draft.location_salle_payante || undefined,
+      location_salle_cout_annuel: draft.location_salle_cout_annuel || undefined,
+      location_salle_precisions: draft.location_salle_precisions || undefined,
+      assurance_dediee: draft.assurance_dediee || undefined,
+      assurance_cout_annuel: draft.assurance_cout_annuel || undefined,
+      deplacements_estimes: draft.deplacements_estimes || undefined,
+      deplacements_frequence_mensuelle: draft.deplacements_frequence_mensuelle || undefined,
+      deplacements_cout_moyen: draft.deplacements_cout_moyen || undefined,
+      cotisations_actives: draft.cotisations_actives || undefined,
+      nb_adherents_payants: draft.nb_adherents_payants || undefined,
+      tarif_moyen_annuel: draft.tarif_moyen_annuel || undefined,
+      autres_bailleurs_sollicites: draft.autres_bailleurs_sollicites.filter(b => b.nom_bailleur && b.statut) as DetailsJson['autres_bailleurs_sollicites'],
     };
     await fetch(`/api/demandes/${id}`, {
       method: 'PATCH',
@@ -324,6 +401,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     });
     await loadDemande();
     await loadBrief();
+    await loadBudgetLignes();
     setSavingDraft(false);
     setSavedDraft(true);
     setEditMode(false);
@@ -671,6 +749,34 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <input type="number" className="field-input" value={draft.nb_beneficiaires_estime} onChange={e => setField('nb_beneficiaires_estime', e.target.value)} placeholder="0" min={0} />
                       </Field>
                     </div>
+                    {/* Autres financements sollicités */}
+                    <div>
+                      <p className="text-xs text-gray-500 font-medium mb-2">Autres financements sollicités pour ce projet</p>
+                      {draft.autres_bailleurs_sollicites.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          <div className="grid grid-cols-[1fr_110px_120px_24px] gap-2 mb-1">
+                            <span className="text-xs text-gray-400">Bailleur</span>
+                            <span className="text-xs text-gray-400">Montant (€)</span>
+                            <span className="text-xs text-gray-400">Statut</span>
+                            <span />
+                          </div>
+                          {draft.autres_bailleurs_sollicites.map((b, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_110px_120px_24px] gap-2 items-center">
+                              <input className="field-input text-sm" value={b.nom_bailleur} onChange={e => setAutreBailleur(i, { nom_bailleur: e.target.value })} placeholder="Ex : Département 75, CAF…" />
+                              <input type="number" className="field-input text-sm" value={b.montant} onChange={e => setAutreBailleur(i, { montant: e.target.value })} placeholder="0" min={0} />
+                              <select className="field-input text-sm" value={b.statut} onChange={e => setAutreBailleur(i, { statut: e.target.value as AutreBailleurDraft['statut'] })}>
+                                <option value="">— statut —</option>
+                                <option value="envisage">Envisagé</option>
+                                <option value="demande">Demandé</option>
+                                <option value="obtenu">Obtenu</option>
+                              </select>
+                              <button type="button" onClick={() => removeAutreBailleur(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" onClick={addAutreBailleur} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter un financement</button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
@@ -686,6 +792,27 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       : <div><p className="text-xs text-gray-500 mb-1">Objectif</p><p className="text-sm text-gray-300 italic">—</p></div>}
                     <RowF label="Public" value={demande.public_beneficiaire ? `${demande.public_beneficiaire}${demande.nb_beneficiaires_estime ? ` (${demande.nb_beneficiaires_estime} pers.)` : ''}` : null} />
                     <RowF label="Nb bénéficiaires estimés" value={!demande.public_beneficiaire && demande.nb_beneficiaires_estime ? `${demande.nb_beneficiaires_estime} personnes` : null} />
+                    {/* Autres financements */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Autres financements sollicités</p>
+                      {det.autres_bailleurs_sollicites?.filter(b => b.nom_bailleur).length ? (
+                        <div className="space-y-1">
+                          {det.autres_bailleurs_sollicites.filter(b => b.nom_bailleur).map((b, i) => {
+                            const statutColor = b.statut === 'obtenu' ? 'bg-green-100 text-green-700' : b.statut === 'demande' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500';
+                            const statutLabel = b.statut === 'obtenu' ? 'Obtenu' : b.statut === 'demande' ? 'Demandé' : 'Envisagé';
+                            return (
+                              <div key={i} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="text-gray-700 flex-1">{b.nom_bailleur}</span>
+                                {b.statut && <span className={`text-xs px-1.5 py-0.5 rounded-full ${statutColor}`}>{statutLabel}</span>}
+                                <span className="font-medium tabular-nums text-gray-900">{b.montant ? `${parseFloat(b.montant).toLocaleString('fr-FR')} €` : '—'}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-300 italic">—</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </SectionCard>
@@ -896,6 +1023,127 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 )}
               </SectionCard>
 
+              {/* Charges et recettes additionnelles */}
+              <SectionCard title="Charges et recettes additionnelles">
+                {editMode ? (
+                  <div className="space-y-5">
+                    {/* Achats / fournitures récurrents */}
+                    <div>
+                      <p className="text-xs text-gray-500 font-medium mb-2">Achats et fournitures récurrents (compte 60)</p>
+                      {draft.achats_recurrents.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          <div className="grid grid-cols-[1fr_100px_100px_24px] gap-2 mb-1">
+                            <span className="text-xs text-gray-400">Type / description</span>
+                            <span className="text-xs text-gray-400">Qté/an</span>
+                            <span className="text-xs text-gray-400">Coût unit. (€)</span>
+                            <span />
+                          </div>
+                          {draft.achats_recurrents.map((a, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_100px_100px_24px] gap-2 items-center">
+                              <input className="field-input text-sm" value={a.nom_type} onChange={e => setAchat(i, { nom_type: e.target.value })} placeholder="Ex : Fournitures pédagogiques, Alimentation…" />
+                              <input type="number" className="field-input text-sm" value={a.quantite_annuelle} onChange={e => setAchat(i, { quantite_annuelle: e.target.value })} placeholder="12" min={0} />
+                              <input type="number" className="field-input text-sm" value={a.cout_unitaire} onChange={e => setAchat(i, { cout_unitaire: e.target.value })} placeholder="50" min={0} step={0.01} />
+                              <button type="button" onClick={() => removeAchat(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" onClick={addAchat} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter un achat</button>
+                    </div>
+                    {/* Location de salle */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.location_salle_payante} onChange={e => setField('location_salle_payante', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Location de salle payante (compte 61)</span>
+                      </label>
+                      {draft.location_salle_payante && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <Field label="Coût annuel total (€)">
+                            <input type="number" className="field-input" value={draft.location_salle_cout_annuel} onChange={e => setField('location_salle_cout_annuel', e.target.value)} placeholder="Ex : 3 600" min={0} />
+                          </Field>
+                          <Field label="Précisions">
+                            <input className="field-input" value={draft.location_salle_precisions} onChange={e => setField('location_salle_precisions', e.target.value)} placeholder="Ex : salle polyvalente 3h × 48 sem." />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                    {/* Assurance */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.assurance_dediee} onChange={e => setField('assurance_dediee', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Assurance dédiée au projet (compte 61)</span>
+                      </label>
+                      {draft.assurance_dediee && (
+                        <div className="mt-3">
+                          <Field label="Coût annuel estimé (€)">
+                            <input type="number" className="field-input" value={draft.assurance_cout_annuel} onChange={e => setField('assurance_cout_annuel', e.target.value)} placeholder="Ex : 800" min={0} />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                    {/* Déplacements */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.deplacements_estimes} onChange={e => setField('deplacements_estimes', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Déplacements / missions estimés (compte 62)</span>
+                      </label>
+                      {draft.deplacements_estimes && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <Field label="Fréquence mensuelle (trajets/mois)">
+                            <input type="number" className="field-input" value={draft.deplacements_frequence_mensuelle} onChange={e => setField('deplacements_frequence_mensuelle', e.target.value)} placeholder="Ex : 4" min={0} />
+                          </Field>
+                          <Field label="Coût moyen par trajet (€)">
+                            <input type="number" className="field-input" value={draft.deplacements_cout_moyen} onChange={e => setField('deplacements_cout_moyen', e.target.value)} placeholder="Ex : 15" min={0} step={0.01} />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                    {/* Cotisations */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.cotisations_actives} onChange={e => setField('cotisations_actives', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Cotisations / prestations des bénéficiaires (compte 70)</span>
+                      </label>
+                      {draft.cotisations_actives && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <Field label="Nb adhérents payants">
+                            <input type="number" className="field-input" value={draft.nb_adherents_payants} onChange={e => setField('nb_adherents_payants', e.target.value)} placeholder="Ex : 80" min={0} />
+                          </Field>
+                          <Field label="Tarif moyen annuel (€/pers.)">
+                            <input type="number" className="field-input" value={draft.tarif_moyen_annuel} onChange={e => setField('tarif_moyen_annuel', e.target.value)} placeholder="Ex : 50" min={0} step={0.01} />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Achats */}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Achats et fournitures récurrents</p>
+                      {det.achats_recurrents?.filter(a => a.nom_type).length ? (
+                        <div className="space-y-1">
+                          {det.achats_recurrents.filter(a => a.nom_type).map((a, i) => {
+                            const montant = (parseFloat(a.quantite_annuelle) || 0) * (parseFloat(a.cout_unitaire) || 0);
+                            return (
+                              <div key={i} className="flex justify-between text-sm gap-3">
+                                <span className="text-gray-700 flex-1">{a.nom_type}</span>
+                                <span className="text-gray-400 text-xs">{a.quantite_annuelle}× {a.cout_unitaire} €</span>
+                                <span className="font-medium tabular-nums">{montant.toLocaleString('fr-FR')} €</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <p className="text-sm text-gray-300 italic">—</p>}
+                    </div>
+                    <RowF label="Location de salle" value={det.location_salle_payante ? `${det.location_salle_cout_annuel ? `${parseFloat(det.location_salle_cout_annuel).toLocaleString('fr-FR')} €/an` : 'Oui'}${det.location_salle_precisions ? ` — ${det.location_salle_precisions}` : ''}` : null} />
+                    <RowF label="Assurance dédiée" value={det.assurance_dediee && det.assurance_cout_annuel ? `${parseFloat(det.assurance_cout_annuel).toLocaleString('fr-FR')} €/an` : det.assurance_dediee ? 'Oui' : null} />
+                    <RowF label="Déplacements estimés" value={det.deplacements_estimes && det.deplacements_frequence_mensuelle && det.deplacements_cout_moyen ? `${det.deplacements_frequence_mensuelle} trajet(s)/mois × ${det.deplacements_cout_moyen} €` : det.deplacements_estimes ? 'Oui' : null} />
+                    <RowF label="Cotisations bénéficiaires" value={det.cotisations_actives && det.nb_adherents_payants ? `${det.nb_adherents_payants} adhérents × ${det.tarif_moyen_annuel || '?'} €/an` : det.cotisations_actives ? 'Oui' : null} />
+                  </div>
+                )}
+              </SectionCard>
+
               {/* Aperçu des lignes budgétaires auto-générées (visible en mode édition) */}
               {editMode && lignesAutoPreview.length > 0 && (
                 <AutoBudgetPreview lignes={lignesAutoPreview} demandeId={id} />
@@ -909,6 +1157,35 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     recettes={draft.recettes}
                     onChange={(dep, rec) => setDraft(prev => prev ? { ...prev, depenses: dep, recettes: rec } : prev)}
                   />
+                ) : budgetLignes.length > 0 ? (
+                  <>
+                    <BudgetLignesView lignes={budgetLignes} demandeId={id} />
+                    {demande.montant_demande != null && (() => {
+                      const totalLignesCharge = budgetLignes.filter(l => l.sens === 'charge').reduce((s, l) => s + l.montant, 0);
+                      const ecart = demande.montant_demande - totalLignesCharge;
+                      const ecartColor = Math.abs(ecart) < 0.01
+                        ? 'bg-green-50 text-green-700'
+                        : ecart > 0
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-gray-50 text-gray-600';
+                      return (
+                        <div className="border-t border-gray-100 pt-3 mt-1 space-y-1.5">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Montant demandé</span>
+                            <span className="font-medium tabular-nums">{fmt(demande.montant_demande)} €</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">Total charges</span>
+                            <span className="font-medium tabular-nums">{fmt(totalLignesCharge)} €</span>
+                          </div>
+                          <div className={`flex justify-between text-sm font-semibold px-2.5 py-1.5 rounded-lg ${ecartColor}`}>
+                            <span>Écart (demandé − charges)</span>
+                            <span className="tabular-nums">{ecart > 0 ? '+' : ''}{fmt(ecart)} €</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
                 ) : (
                   <>
                     <BudgetView depenses={viewDep} recettes={viewRec} totalDep={totalDep} totalRec={totalRec} />
@@ -1407,6 +1684,85 @@ function BudgetView({ depenses, recettes, totalDep, totalRec }: {
           {balanced ? '✓ Budget équilibré' : `⚠️ Déséquilibre : ${fmt(Math.abs(totalDep - totalRec))} € — dépenses ${totalDep > totalRec ? '>' : '<'} recettes`}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Budget lignes view (live from budget_lignes table) ──────────── */
+function BudgetLignesView({ lignes, demandeId }: { lignes: BudgetLigneDB[]; demandeId: string }) {
+  const charges = lignes.filter(l => l.sens === 'charge');
+  const produits = lignes.filter(l => l.sens === 'produit');
+  const totalCharges = charges.reduce((s, l) => s + l.montant, 0);
+  const totalProduits = produits.reduce((s, l) => s + l.montant, 0);
+  const balanced = Math.abs(totalCharges - totalProduits) < 0.01;
+  const fmtL = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  const STATUT_LABEL: Record<string, { label: string; cls: string }> = {
+    obtenu: { label: 'Obtenu', cls: 'bg-green-100 text-green-700' },
+    demande: { label: 'Demandé', cls: 'bg-blue-100 text-blue-700' },
+    envisage: { label: 'Envisagé', cls: 'bg-gray-100 text-gray-500' },
+  };
+
+  return (
+    <div className="space-y-4">
+      {charges.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Charges</p>
+          <div className="space-y-1.5">
+            {charges.map(l => (
+              <div key={l.id} className="flex items-start gap-2 text-sm">
+                <span className="shrink-0 text-xs font-mono text-blue-500 bg-blue-50 px-1 rounded mt-0.5">{l.compte}</span>
+                <span className="flex-1 text-gray-700">{l.sous_categorie || '—'}</span>
+                {l.cle_generation && (
+                  <span className="shrink-0 text-xs text-indigo-400 font-mono">⚙</span>
+                )}
+                <span className="shrink-0 font-medium tabular-nums text-gray-900">{fmtL(l.montant)} €</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-sm font-semibold border-t border-gray-100 pt-1.5 mt-1">
+              <span>Total charges</span>
+              <span className="tabular-nums">{fmtL(totalCharges)} €</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {produits.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Produits</p>
+          <div className="space-y-1.5">
+            {produits.map(l => {
+              const statutInfo = l.statut_financement ? STATUT_LABEL[l.statut_financement] : null;
+              return (
+                <div key={l.id} className="flex items-start gap-2 text-sm">
+                  <span className="shrink-0 text-xs font-mono text-green-600 bg-green-50 px-1 rounded mt-0.5">{l.compte}</span>
+                  <span className="flex-1 text-gray-700">{l.sous_categorie || l.bailleur_detail || '—'}</span>
+                  {statutInfo && (
+                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full ${statutInfo.cls}`}>{statutInfo.label}</span>
+                  )}
+                  {l.cle_generation && (
+                    <span className="shrink-0 text-xs text-indigo-400 font-mono">⚙</span>
+                  )}
+                  <span className="shrink-0 font-medium tabular-nums text-gray-900">{fmtL(l.montant)} €</span>
+                </div>
+              );
+            })}
+            <div className="flex justify-between text-sm font-semibold border-t border-gray-100 pt-1.5 mt-1">
+              <span>Total produits</span>
+              <span className="tabular-nums">{fmtL(totalProduits)} €</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {charges.length > 0 && produits.length > 0 && (
+        <div className={`text-xs px-3 py-2 rounded-lg ${balanced ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+          {balanced ? '✓ Budget équilibré' : `⚠️ Écart : ${fmtL(Math.abs(totalCharges - totalProduits))} €`}
+        </div>
+      )}
+      <p className="text-xs text-gray-400">
+        Données en temps réel depuis{' '}
+        <Link href={`/demandes/${demandeId}/budget`} className="text-blue-500 hover:underline">
+          le budget par ligne de compte →
+        </Link>
+      </p>
     </div>
   );
 }

@@ -112,6 +112,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         sens: l.sens,
         compte: l.compte,
         sous_categorie: l.sous_categorie,
+        bailleur_detail: l.bailleur_detail ?? null,
         quantite: l.quantite ?? null,
         prix_unitaire: l.prix_unitaire ?? null,
         montant: l.montant,
@@ -119,6 +120,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         est_valorisation_benevolat: l.est_valorisation_benevolat,
         est_charge_commune: false,
         cle_generation: l.cle_generation,
+        statut_financement: l.statut_financement ?? null,
       };
       if (existingId) {
         await supabase.from('budget_lignes').update(row).eq('id', existingId);

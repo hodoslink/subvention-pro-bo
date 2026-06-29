@@ -315,6 +315,15 @@ function LigneRow({ ligne, onEdit, onDelete, deleting }: {
               className="shrink-0 text-xs bg-indigo-50 text-indigo-500 border border-indigo-100 px-1.5 py-0 rounded font-mono cursor-help"
             >⚙ auto</span>
           )}
+          {ligne.statut_financement && ligne.sens === 'produit' && (() => {
+            const cfg: Record<string, { label: string; cls: string }> = {
+              obtenu: { label: 'Obtenu', cls: 'bg-green-100 text-green-700 border-green-200' },
+              demande: { label: 'Demandé', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+              envisage: { label: 'Envisagé', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+            };
+            const s = cfg[ligne.statut_financement];
+            return s ? <span className={`shrink-0 text-xs border px-1.5 py-0 rounded ${s.cls}`}>{s.label}</span> : null;
+          })()}
         </div>
         {ligne.bailleur_detail && <p className="text-xs text-gray-500">{ligne.bailleur_detail}</p>}
         {ligne.precisions && <p className="text-xs text-gray-400 italic">{ligne.precisions}</p>}

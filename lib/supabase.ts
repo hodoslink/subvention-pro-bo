@@ -91,6 +91,25 @@ export type DetailsJson = {
   locaux_valeur_estimee?: string;
   // Évaluation
   indicateurs_evaluation?: string;
+  // Achats / fournitures récurrents
+  achats_recurrents?: Array<{ nom_type: string; quantite_annuelle: string; cout_unitaire: string }>;
+  // Location de salle payante (≠ locaux mis à dispo gratuits)
+  location_salle_payante?: boolean;
+  location_salle_cout_annuel?: string;
+  location_salle_precisions?: string;
+  // Assurance dédiée au projet
+  assurance_dediee?: boolean;
+  assurance_cout_annuel?: string;
+  // Déplacements / missions
+  deplacements_estimes?: boolean;
+  deplacements_frequence_mensuelle?: string;
+  deplacements_cout_moyen?: string;
+  // Cotisations actives des bénéficiaires
+  cotisations_actives?: boolean;
+  nb_adherents_payants?: string;
+  tarif_moyen_annuel?: string;
+  // Autres bailleurs sollicités sur ce projet
+  autres_bailleurs_sollicites?: Array<{ nom_bailleur: string; montant: string; statut: 'obtenu' | 'demande' | 'envisage' }>;
 };
 
 export type Association = {
@@ -186,7 +205,8 @@ export type BudgetLigneDB = {
   est_valorisation_benevolat: boolean;
   precisions?: string;
   piece_justificative_url?: string;
-  cle_generation?: string | null;  // null = ligne manuelle, valeur = ligne auto-générée
+  cle_generation?: string | null;       // null = ligne manuelle, valeur = ligne auto-générée
+  statut_financement?: string | null;   // 'obtenu' | 'demande' | 'envisage' — lignes produit seulement
 };
 
 export type BudgetEquilibre = {

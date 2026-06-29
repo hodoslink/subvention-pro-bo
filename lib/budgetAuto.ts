@@ -9,11 +9,13 @@ export type LigneAutoGeneree = {
   sens: 'charge' | 'produit';
   compte: string;
   sous_categorie: string;
+  bailleur_detail?: string;
   quantite?: number;
   prix_unitaire?: number;
   montant: number;
   precisions: string;
   est_valorisation_benevolat: boolean;
+  statut_financement?: string | null;
 };
 
 function parseNum(s: string | number | undefined): number {
@@ -122,6 +124,119 @@ export function genererLignesAuto(details: DetailsJson): LigneAutoGeneree[] {
         est_valorisation_benevolat: true,
       });
     }
+  }
+
+  // ── 5. Achats / fournitures récurrents ────────────────────────────────────
+  if (Array.isArray(details.achats_recurrents)) {
+    details.achats_recurrents.forEach((a, i) => {
+      if (!a.nom_type) return;
+      const qte = parseNum(a.quantite_annuelle);
+      const cout = parseNum(a.cout_unitaire);
+      if (isNaN(qte) || isNaN(cout) || qte <= 0 || cout <= 0) return;
+      lignes.push({
+        cle_generation: `auto_achat_${i}`,
+        sens: 'charge',
+        compte: '60',
+        sous_categorie: a.nom_type,
+        quantite: qte,
+        prix_unitaire: cout,
+        montant: round2(qte * cout),
+        precisions: `${qte} × ${cout} €`,
+        est_valorisation_benevolat: false,
+      });
+    });
+  }
+
+  // ── 6. Location de salle payante ──────────────────────────────────────────
+  if (details.location_salle_payante) {
+    const montant = parseNum(details.location_salle_cout_annuel);
+    if (montant > 0) {
+      lignes.push({
+        cle_generation: 'auto_location_salle',
+        sens: 'charge',
+        compte: '61',
+        sous_categorie: 'Location de salle',
+        montant,
+        precisions: details.location_salle_precisions || 'Location de salle — coût annuel',
+        est_valorisation_benevolat: false,
+      });
+    }
+  }
+
+  // ── 7. Assurance dédiée ───────────────────────────────────────────────────
+  if (details.assurance_dediee) {
+    const montant = parseNum(details.assurance_cout_annuel);
+    if (montant > 0) {
+      lignes.push({
+        cle_generation: 'auto_assurance',
+        sens: 'charge',
+        compte: '61',
+        sous_categorie: 'Assurance dédiée au projet',
+        montant,
+        precisions: 'Assurance dédiée — coût annuel estimé',
+        est_valorisation_benevolat: false,
+      });
+    }
+  }
+
+  // ── 8. Déplacements / missions ────────────────────────────────────────────
+  if (details.deplacements_estimes) {
+    const freqMois = parseNum(details.deplacements_frequence_mensuelle);
+    const coutMoyen = parseNum(details.deplacements_cout_moyen);
+    if (freqMois > 0 && coutMoyen > 0) {
+      const totalTrajets = freqMois * 12;
+      lignes.push({
+        cle_generation: 'auto_deplacements',
+        sens: 'charge',
+        compte: '62',
+        sous_categorie: 'Déplacements et missions',
+        quantite: totalTrajets,
+        prix_unitaire: coutMoyen,
+        montant: round2(totalTrajets * coutMoyen),
+        precisions: `${freqMois} trajet(s)/mois × 12 mois × ${coutMoyen} €`,
+        est_valorisation_benevolat: false,
+      });
+    }
+  }
+
+  // ── 9. Cotisations / prestations des bénéficiaires ────────────────────────
+  if (details.cotisations_actives) {
+    const nbAdherents = parseNum(details.nb_adherents_payants);
+    const tarifMoyen = parseNum(details.tarif_moyen_annuel);
+    if (nbAdherents > 0 && tarifMoyen > 0) {
+      lignes.push({
+        cle_generation: 'auto_cotisations',
+        sens: 'produit',
+        compte: '70',
+        sous_categorie: 'Vente de prestations / cotisations',
+        quantite: nbAdherents,
+        prix_unitaire: tarifMoyen,
+        montant: round2(nbAdherents * tarifMoyen),
+        precisions: `${nbAdherents} adhérent(s) × ${tarifMoyen} €/an`,
+        est_valorisation_benevolat: false,
+      });
+    }
+  }
+
+  // ── 10. Autres bailleurs sollicités ───────────────────────────────────────
+  if (Array.isArray(details.autres_bailleurs_sollicites)) {
+    details.autres_bailleurs_sollicites.forEach((b, i) => {
+      if (!b.nom_bailleur) return;
+      const montant = parseNum(b.montant);
+      if (isNaN(montant) || montant <= 0) return;
+      const statutLabel = b.statut === 'obtenu' ? 'Obtenu' : b.statut === 'demande' ? 'Demandé' : 'Envisagé';
+      lignes.push({
+        cle_generation: `auto_autre_bailleur_${i}`,
+        sens: 'produit',
+        compte: '74',
+        sous_categorie: `Subvention — ${b.nom_bailleur}`,
+        bailleur_detail: b.nom_bailleur,
+        montant,
+        precisions: `Statut : ${statutLabel}`,
+        est_valorisation_benevolat: false,
+        statut_financement: b.statut || null,
+      });
+    });
   }
 
   return lignes;
