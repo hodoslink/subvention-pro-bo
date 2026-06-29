@@ -307,7 +307,15 @@ function LigneRow({ ligne, onEdit, onDelete, deleting }: {
     <div className="flex items-start gap-3 py-2 border-b border-gray-100 last:border-0">
       <span className="shrink-0 text-xs font-mono font-bold text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 mt-0.5">{ligne.compte}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">{ligne.sous_categorie || ligne.libelle_compte || '—'}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-800 truncate">{ligne.sous_categorie || ligne.libelle_compte || '—'}</p>
+          {ligne.cle_generation && (
+            <span
+              title="Calculée automatiquement depuis la fiche demande. Modifier via Moyens humains / Prestataires. Si vous éditez le montant ici, il sera recalculé à la prochaine sauvegarde de la fiche."
+              className="shrink-0 text-xs bg-indigo-50 text-indigo-500 border border-indigo-100 px-1.5 py-0 rounded font-mono cursor-help"
+            >⚙ auto</span>
+          )}
+        </div>
         {ligne.bailleur_detail && <p className="text-xs text-gray-500">{ligne.bailleur_detail}</p>}
         {ligne.precisions && <p className="text-xs text-gray-400 italic">{ligne.precisions}</p>}
         {ligne.quantite != null && ligne.prix_unitaire != null && (

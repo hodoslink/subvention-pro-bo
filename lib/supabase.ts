@@ -74,10 +74,22 @@ export type DetailsJson = {
   beneficiaires_age?: string;
   beneficiaires_sexe?: string;
   localisation_qpv?: string;
+  // Moyens humains
   nb_benevoles?: string;
   etpt_benevoles?: string;
+  heures_benevolat_semaine?: string;
+  taux_horaire_valorisation?: string;   // défaut SMIC horaire brut — voir lib/budgetAuto.ts
   nb_salaries?: string;
+  cout_salarial_annuel_estime?: string;
   moyens_description?: string;
+  // Prestataires
+  a_des_prestataires?: boolean;
+  prestataires?: Array<{ nom_type: string; nb_seances_ou_ateliers: string; tarif_unitaire: string }>;
+  // Locaux
+  locaux_mis_a_disposition?: boolean;
+  locaux_bailleur?: string;
+  locaux_valeur_estimee?: string;
+  // Évaluation
   indicateurs_evaluation?: string;
 };
 
@@ -174,6 +186,7 @@ export type BudgetLigneDB = {
   est_valorisation_benevolat: boolean;
   precisions?: string;
   piece_justificative_url?: string;
+  cle_generation?: string | null;  // null = ligne manuelle, valeur = ligne auto-générée
 };
 
 export type BudgetEquilibre = {

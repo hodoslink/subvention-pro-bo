@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
+import { genererLignesAuto } from '@/lib/budgetAuto';
 import { z } from 'zod';
 
 const patchSchema = z.object({
@@ -78,6 +79,53 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       evenement: 'statut_change',
       detail: `Statut → ${parsed.data.statut}`,
     });
+  }
+
+  // Sync auto-generated budget lines when details_json is saved
+  if (parsed.data.details_json) {
+    const lignesAuto = genererLignesAuto(parsed.data.details_json);
+
+    const { data: existingLines } = await supabase
+      .from('budget_lignes')
+      .select('id, cle_generation')
+      .eq('demande_id', id)
+      .not('cle_generation', 'is', null);
+
+    const existingByCle = new Map(
+      (existingLines ?? []).map(l => [l.cle_generation as string, l.id as string])
+    );
+    const clesCourantes = new Set(lignesAuto.map(l => l.cle_generation));
+
+    // Delete auto lines that are no longer generated
+    const idsToDelete = (existingLines ?? [])
+      .filter(l => !clesCourantes.has(l.cle_generation as string))
+      .map(l => l.id as string);
+    if (idsToDelete.length > 0) {
+      await supabase.from('budget_lignes').delete().in('id', idsToDelete);
+    }
+
+    // Insert or update each generated line
+    for (const l of lignesAuto) {
+      const existingId = existingByCle.get(l.cle_generation);
+      const row = {
+        demande_id: id,
+        sens: l.sens,
+        compte: l.compte,
+        sous_categorie: l.sous_categorie,
+        quantite: l.quantite ?? null,
+        prix_unitaire: l.prix_unitaire ?? null,
+        montant: l.montant,
+        precisions: l.precisions,
+        est_valorisation_benevolat: l.est_valorisation_benevolat,
+        est_charge_commune: false,
+        cle_generation: l.cle_generation,
+      };
+      if (existingId) {
+        await supabase.from('budget_lignes').update(row).eq('id', existingId);
+      } else {
+        await supabase.from('budget_lignes').insert(row);
+      }
+    }
   }
 
   return NextResponse.json({ demande: data });

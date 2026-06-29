@@ -5,6 +5,7 @@ import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
 import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission } from "@/lib/supabase";
+import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree } from "@/lib/budgetAuto";
 import Link from "next/link";
 
 type FullDemande = Demande & { associations: Association };
@@ -20,6 +21,7 @@ type EnrichResult = {
 };
 
 type BudgetRow = { label: string; montant: string };
+type PrestataireDraft = { nom_type: string; nb_seances_ou_ateliers: string; tarif_unitaire: string };
 
 type FullDraft = {
   titre_projet: string;
@@ -59,6 +61,15 @@ type FullDraft = {
   annee_millesime: string;
   plateforme_url_specifique: string;
   plateforme_identifiant_dossier: string;
+  // Budget auto
+  heures_benevolat_semaine: string;
+  taux_horaire_valorisation: string;
+  cout_salarial_annuel_estime: string;
+  a_des_prestataires: boolean;
+  prestataires: PrestataireDraft[];
+  locaux_mis_a_disposition: boolean;
+  locaux_bailleur: string;
+  locaux_valeur_estimee: string;
 };
 
 const DEP_CATS = [
@@ -143,6 +154,14 @@ function draftFromDemande(d: FullDemande): FullDraft {
     annee_millesime: d.annee_millesime?.toString() || '',
     plateforme_url_specifique: d.plateforme_url_specifique || '',
     plateforme_identifiant_dossier: d.plateforme_identifiant_dossier || '',
+    heures_benevolat_semaine: det.heures_benevolat_semaine || '',
+    taux_horaire_valorisation: det.taux_horaire_valorisation || '',
+    cout_salarial_annuel_estime: det.cout_salarial_annuel_estime || '',
+    a_des_prestataires: det.a_des_prestataires ?? false,
+    prestataires: det.prestataires ?? [],
+    locaux_mis_a_disposition: det.locaux_mis_a_disposition ?? false,
+    locaux_bailleur: det.locaux_bailleur || '',
+    locaux_valeur_estimee: det.locaux_valeur_estimee || '',
   };
 }
 
@@ -218,6 +237,29 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     setEditMode(false);
   };
 
+  const setPrestataire = (i: number, patch: Partial<PrestataireDraft>) =>
+    setDraft(prev => prev ? { ...prev, prestataires: prev.prestataires.map((p, j) => j === i ? { ...p, ...patch } : p) } : prev);
+  const removePrestataire = (i: number) =>
+    setDraft(prev => prev ? { ...prev, prestataires: prev.prestataires.filter((_, j) => j !== i) } : prev);
+  const addPrestataire = () =>
+    setDraft(prev => prev ? { ...prev, prestataires: [...prev.prestataires, { nom_type: '', nb_seances_ou_ateliers: '', tarif_unitaire: '' }] } : prev);
+
+  const lignesAutoPreview = useMemo(() => {
+    if (!draft || !editMode) return [] as LigneAutoGeneree[];
+    return genererLignesAuto({
+      nb_benevoles: draft.nb_benevoles || undefined,
+      heures_benevolat_semaine: draft.heures_benevolat_semaine || undefined,
+      taux_horaire_valorisation: draft.taux_horaire_valorisation || undefined,
+      a_des_prestataires: draft.a_des_prestataires,
+      prestataires: draft.prestataires,
+      nb_salaries: draft.nb_salaries || undefined,
+      cout_salarial_annuel_estime: draft.cout_salarial_annuel_estime || undefined,
+      locaux_mis_a_disposition: draft.locaux_mis_a_disposition,
+      locaux_bailleur: draft.locaux_bailleur || undefined,
+      locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
+    });
+  }, [draft, editMode]);
+
   const saveDossier = async () => {
     if (!draft) return;
     setSavingDraft(true);
@@ -237,8 +279,18 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       localisation_qpv: draft.localisation_qpv || undefined,
       nb_benevoles: draft.nb_benevoles || undefined,
       etpt_benevoles: draft.etpt_benevoles || undefined,
+      heures_benevolat_semaine: draft.heures_benevolat_semaine || undefined,
+      taux_horaire_valorisation: draft.taux_horaire_valorisation || undefined,
       nb_salaries: draft.nb_salaries || undefined,
+      cout_salarial_annuel_estime: draft.cout_salarial_annuel_estime || undefined,
       moyens_description: draft.moyens_description || undefined,
+      a_des_prestataires: draft.a_des_prestataires || undefined,
+      prestataires: draft.a_des_prestataires && draft.prestataires.some(p => p.nom_type)
+        ? draft.prestataires.filter(p => p.nom_type)
+        : undefined,
+      locaux_mis_a_disposition: draft.locaux_mis_a_disposition || undefined,
+      locaux_bailleur: draft.locaux_bailleur || undefined,
+      locaux_valeur_estimee: draft.locaux_valeur_estimee || undefined,
       indicateurs_evaluation: draft.indicateurs_evaluation || undefined,
     };
     await fetch(`/api/demandes/${id}`, {
@@ -706,13 +758,30 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <input type="number" className="field-input" value={draft.nb_salaries} onChange={e => setField('nb_salaries', e.target.value)} placeholder="0" min={0} />
                       </Field>
                     </div>
+                    {/* Valorisation bénévolat — déclenche ligne auto 86/87 */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Heures de bénévolat / semaine">
+                        <input type="number" className="field-input" value={draft.heures_benevolat_semaine} onChange={e => setField('heures_benevolat_semaine', e.target.value)} placeholder="Ex : 4" min={0} step={0.5} />
+                      </Field>
+                      <div>
+                        <label className="text-xs text-gray-500 font-medium block mb-1">Taux horaire valorisation (€/h)</label>
+                        <input type="number" className="field-input" value={draft.taux_horaire_valorisation} onChange={e => setField('taux_horaire_valorisation', e.target.value)} placeholder={String(SMIC_HORAIRE_BRUT_DEFAUT)} min={0} step={0.01} />
+                        <p className="text-xs text-amber-600 mt-0.5">Défaut SMIC brut ({SMIC_HORAIRE_BRUT_DEFAUT} €/h) — à vérifier chaque janv./nov.</p>
+                      </div>
+                    </div>
+                    {/* Coût salarial — déclenche ligne auto 64 */}
+                    {Number(draft.nb_salaries) > 0 && (
+                      <Field label="Coût salarial annuel estimé (€) — charges patronales incluses">
+                        <input type="number" className="field-input" value={draft.cout_salarial_annuel_estime} onChange={e => setField('cout_salarial_annuel_estime', e.target.value)} placeholder="Ex : 24 000" min={0} />
+                      </Field>
+                    )}
                     <Field label="Description des moyens mobilisés">
                       <textarea rows={3} className="field-textarea" value={draft.moyens_description} onChange={e => setField('moyens_description', e.target.value)} placeholder={"Ex : 1 coordinatrice salariée à 0,6 ETP + 1 formatrice salariée à 0,8 ETP + 12 bénévoles dont 4 mentors actifs chaque semaine. Locaux mis à disposition gratuitement par la MJC."} />
                     </Field>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    <div className="flex gap-6 text-sm">
+                    <div className="flex gap-6 text-sm flex-wrap">
                       <span>
                         <span className="text-gray-400 mr-1">Bénévoles</span>
                         <strong className={det.nb_benevoles ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.nb_benevoles || '—'}</strong>
@@ -726,10 +795,111 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <strong className={det.nb_salaries ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.nb_salaries || '—'}</strong>
                       </span>
                     </div>
+                    {(det.heures_benevolat_semaine || det.taux_horaire_valorisation) && (
+                      <p className="text-xs text-gray-500">
+                        Valorisation : {det.heures_benevolat_semaine || '?'} h/sem × {det.taux_horaire_valorisation || SMIC_HORAIRE_BRUT_DEFAUT} €/h
+                      </p>
+                    )}
+                    <RowF label="Coût salarial estimé" value={det.cout_salarial_annuel_estime ? `${parseFloat(det.cout_salarial_annuel_estime).toLocaleString('fr-FR')} €/an` : null} />
                     <TextBlockF label="Description" text={det.moyens_description} />
                   </div>
                 )}
               </SectionCard>
+
+              {/* Prestataires et moyens matériels */}
+              <SectionCard title="Prestataires et moyens matériels">
+                {editMode ? (
+                  <div className="space-y-5">
+                    {/* Prestataires */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={draft.a_des_prestataires}
+                          onChange={e => {
+                            setField('a_des_prestataires', e.target.checked);
+                            if (e.target.checked && draft.prestataires.length === 0) addPrestataire();
+                          }}
+                        />
+                        <span className="text-sm font-medium text-gray-700">Avez-vous des prestataires / intervenants rémunérés ?</span>
+                      </label>
+                      {draft.a_des_prestataires && (
+                        <div className="mt-3 space-y-2">
+                          <div className="grid grid-cols-[1fr_100px_100px_24px] gap-2 mb-1">
+                            <span className="text-xs text-gray-400">Type / nom</span>
+                            <span className="text-xs text-gray-400">Nb séances</span>
+                            <span className="text-xs text-gray-400">Tarif (€)</span>
+                            <span />
+                          </div>
+                          {draft.prestataires.map((p, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_100px_100px_24px] gap-2 items-center">
+                              <input className="field-input text-sm" value={p.nom_type} onChange={e => setPrestataire(i, { nom_type: e.target.value })} placeholder="Ex : Diététicien·ne, Coach APA…" />
+                              <input type="number" className="field-input text-sm" value={p.nb_seances_ou_ateliers} onChange={e => setPrestataire(i, { nb_seances_ou_ateliers: e.target.value })} placeholder="12" min={0} />
+                              <input type="number" className="field-input text-sm" value={p.tarif_unitaire} onChange={e => setPrestataire(i, { tarif_unitaire: e.target.value })} placeholder="80" min={0} step={0.01} />
+                              <button type="button" onClick={() => removePrestataire(i)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                            </div>
+                          ))}
+                          <button type="button" onClick={addPrestataire} className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1">+ Ajouter un prestataire</button>
+                        </div>
+                      )}
+                    </div>
+                    {/* Locaux */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={draft.locaux_mis_a_disposition}
+                          onChange={e => setField('locaux_mis_a_disposition', e.target.checked)}
+                        />
+                        <span className="text-sm font-medium text-gray-700">Des locaux sont-ils mis à disposition gratuitement ?</span>
+                      </label>
+                      {draft.locaux_mis_a_disposition && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <Field label="Qui met à disposition ?">
+                            <input className="field-input" value={draft.locaux_bailleur} onChange={e => setField('locaux_bailleur', e.target.value)} placeholder="Ex : Mairie du 13e, MJC…" />
+                          </Field>
+                          <Field label="Valeur estimée (€/an)">
+                            <input type="number" className="field-input" value={draft.locaux_valeur_estimee} onChange={e => setField('locaux_valeur_estimee', e.target.value)} placeholder="Ex : 2 400" min={0} />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Prestataires rémunérés</p>
+                      {det.a_des_prestataires && det.prestataires?.some(p => p.nom_type) ? (
+                        <div className="space-y-1.5">
+                          {det.prestataires.filter(p => p.nom_type).map((p, i) => {
+                            const montant = (parseFloat(p.nb_seances_ou_ateliers) || 0) * (parseFloat(p.tarif_unitaire) || 0);
+                            return (
+                              <div key={i} className="flex justify-between text-sm gap-3">
+                                <span className="text-gray-700 flex-1">{p.nom_type}</span>
+                                <span className="text-gray-400 text-xs">{p.nb_seances_ou_ateliers}× {p.tarif_unitaire} €</span>
+                                <span className="font-medium tabular-nums">{montant.toLocaleString('fr-FR')} €</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-300 italic">—</p>
+                      )}
+                    </div>
+                    <RowF
+                      label="Locaux mis à disposition"
+                      value={det.locaux_mis_a_disposition
+                        ? `${det.locaux_bailleur || 'Oui'}${det.locaux_valeur_estimee ? ` — ${parseFloat(det.locaux_valeur_estimee).toLocaleString('fr-FR')} €/an` : ''}`
+                        : null}
+                    />
+                  </div>
+                )}
+              </SectionCard>
+
+              {/* Aperçu des lignes budgétaires auto-générées (visible en mode édition) */}
+              {editMode && lignesAutoPreview.length > 0 && (
+                <AutoBudgetPreview lignes={lignesAutoPreview} demandeId={id} />
+              )}
 
               {/* Budget */}
               <SectionCard title="Budget prévisionnel">
@@ -1084,6 +1254,54 @@ function TextBlockF({ label, text }: { label: string; text?: string | null }) {
 
 function EmptyHint({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 italic">{text}</p>;
+}
+
+function AutoBudgetPreview({ lignes, demandeId }: { lignes: LigneAutoGeneree[]; demandeId: string }) {
+  const charges = lignes.filter(l => l.sens === 'charge');
+  const produits = lignes.filter(l => l.sens === 'produit');
+  const fmtAuto = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">⚙ Lignes budgétaires auto-générées</p>
+        <p className="text-xs text-indigo-400">Recalculé en temps réel · synchronisé à la sauvegarde</p>
+      </div>
+      {charges.length > 0 && (
+        <div>
+          <p className="text-xs text-indigo-500 mb-1.5 font-medium">Charges</p>
+          <div className="space-y-1">
+            {charges.map(l => (
+              <div key={l.cle_generation} className="flex items-center gap-2 text-xs">
+                <span className="font-mono text-indigo-400 w-6 shrink-0">{l.compte}</span>
+                <span className="flex-1 text-gray-700 truncate" title={l.precisions}>{l.sous_categorie}</span>
+                <span className="font-medium tabular-nums text-gray-900">{fmtAuto(l.montant)} €</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {produits.length > 0 && (
+        <div>
+          <p className="text-xs text-indigo-500 mb-1.5 font-medium">Produits en nature</p>
+          <div className="space-y-1">
+            {produits.map(l => (
+              <div key={l.cle_generation} className="flex items-center gap-2 text-xs">
+                <span className="font-mono text-indigo-400 w-6 shrink-0">{l.compte}</span>
+                <span className="flex-1 text-gray-700 truncate" title={l.precisions}>{l.sous_categorie}</span>
+                <span className="font-medium tabular-nums text-gray-900">{fmtAuto(l.montant)} €</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-indigo-400 border-t border-indigo-100 pt-2">
+        Ces lignes seront créées / mises à jour dans{' '}
+        <Link href={`/demandes/${demandeId}/budget`} className="text-indigo-600 hover:underline">
+          l'écran budget complet →
+        </Link>
+      </p>
+    </div>
+  );
 }
 
 function CeQuiChangeEditor({ demandeId: _demandeId, value, onSaved }: {
