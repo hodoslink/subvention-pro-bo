@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
-import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson } from "@/lib/supabase";
+import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission } from "@/lib/supabase";
 import Link from "next/link";
 
 type FullDemande = Demande & { associations: Association };
@@ -53,6 +53,12 @@ type FullDraft = {
   contact_role: string;
   contact_email: string;
   contact_telephone: string;
+  bailleur_id: string;
+  demande_precedente_id: string;
+  ce_qui_change_cette_annee: string;
+  annee_millesime: string;
+  plateforme_url_specifique: string;
+  plateforme_identifiant_dossier: string;
 };
 
 const DEP_CATS = [
@@ -131,6 +137,12 @@ function draftFromDemande(d: FullDemande): FullDraft {
     contact_role: d.contact_role || '',
     contact_email: d.contact_email || '',
     contact_telephone: d.contact_telephone || '',
+    bailleur_id: d.bailleur_id || '',
+    demande_precedente_id: d.demande_precedente_id || '',
+    ce_qui_change_cette_annee: d.ce_qui_change_cette_annee || '',
+    annee_millesime: d.annee_millesime?.toString() || '',
+    plateforme_url_specifique: d.plateforme_url_specifique || '',
+    plateforme_identifiant_dossier: d.plateforme_identifiant_dossier || '',
   };
 }
 
@@ -158,6 +170,12 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [lettreStyle, setLettreStyle] = useState<'formel' | 'accessible'>('formel');
   const [activeTab, setActiveTab] = useState<'dossier' | 'ia' | 'lettre'>('dossier');
 
+  const [brief, setBrief] = useState<BriefMission | null>(null);
+  const [briefOpen, setBriefOpen] = useState(true);
+  const [bailleurs, setBailleurs] = useState<Bailleur[]>([]);
+  const [suggestions, setSuggestions] = useState<Array<{ demande_candidate_id: string; titre_projet: string; annee_millesime: number | null; montant_demande: number | null; montant_obtenu: number | null; statut: string }>>([]);
+  const [savingCeQuiChange, setSavingCeQuiChange] = useState(false);
+
   const loadDemande = async () => {
     const r = await fetch(`/api/demandes/${id}`);
     const { demande: d } = await r.json();
@@ -170,7 +188,27 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     setLoading(false);
   };
 
-  useEffect(() => { loadDemande(); }, [id]);
+  const loadBrief = () =>
+    fetch(`/api/demandes/${id}/brief`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => data && setBrief(data.brief));
+
+  const loadBailleurs = () =>
+    fetch('/api/bailleurs')
+      .then(r => r.json())
+      .then(({ bailleurs: b }) => setBailleurs(b || []));
+
+  const loadSuggestions = () =>
+    fetch(`/api/demandes/${id}/suggestions-precedente`)
+      .then(r => r.json())
+      .then(({ suggestions: s }) => setSuggestions(s || []));
+
+  useEffect(() => {
+    loadDemande();
+    loadBrief();
+    loadBailleurs();
+    loadSuggestions();
+  }, [id]);
 
   const setField = <K extends keyof FullDraft>(key: K, val: FullDraft[K]) =>
     setDraft(prev => prev ? { ...prev, [key]: val } : prev);
@@ -223,11 +261,17 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         contact_role: draft.contact_role || null,
         contact_email: draft.contact_email || null,
         contact_telephone: draft.contact_telephone || null,
+        bailleur_id: draft.bailleur_id || null,
+        demande_precedente_id: draft.demande_precedente_id || null,
+        annee_millesime: draft.annee_millesime ? Number(draft.annee_millesime) : null,
+        plateforme_url_specifique: draft.plateforme_url_specifique || null,
+        plateforme_identifiant_dossier: draft.plateforme_identifiant_dossier || null,
         budget_previsionnel_json: budgetV2,
         details_json: detailsJson,
       }),
     });
     await loadDemande();
+    await loadBrief();
     setSavingDraft(false);
     setSavedDraft(true);
     setEditMode(false);
@@ -331,6 +375,142 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 
         {/* ── Dossier ─────────────────────────────────────────────── */}
         {activeTab === 'dossier' && (
+          <div className="space-y-6">
+
+          {/* Brief de mission */}
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60">
+            <button
+              onClick={() => setBriefOpen(o => !o)}
+              className="w-full flex items-center justify-between px-5 py-3 text-left"
+            >
+              <span className="text-sm font-semibold text-blue-800">
+                Brief de mission
+                {brief?.type_renouvellement === 'renouvellement' && (
+                  <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Renouvellement</span>
+                )}
+              </span>
+              <span className="text-blue-400 text-xs">{briefOpen ? '▲ Réduire' : '▼ Afficher'}</span>
+            </button>
+            {briefOpen && (
+              <div className="px-5 pb-5 space-y-4">
+                {/* Qui est l'association */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1">Association</p>
+                    {brief?.resume_association ? (
+                      <p className="text-sm text-gray-700 leading-relaxed">{brief.resume_association}</p>
+                    ) : (
+                      <p className="text-sm text-gray-400 italic">
+                        Aucun résumé —{' '}
+                        <Link href={`/associations/${asso?.id}`} className="text-blue-600 hover:underline">
+                          compléter la fiche association →
+                        </Link>
+                      </p>
+                    )}
+                    {brief?.secteur_activite && (
+                      <span className="mt-1.5 inline-block text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{brief.secteur_activite}</span>
+                    )}
+                  </div>
+
+                  {/* Plateforme de dépôt */}
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1">Où déposer</p>
+                    {brief?.plateforme_url_effective || brief?.plateforme_nom ? (
+                      <div className="text-sm space-y-0.5">
+                        {brief.plateforme_nom && <p className="font-medium text-gray-800">{brief.plateforme_nom}</p>}
+                        {brief.plateforme_url_effective && (
+                          <a href={brief.plateforme_url_effective} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all text-xs">{brief.plateforme_url_effective}</a>
+                        )}
+                        {brief.plateforme_identifiant_dossier && (
+                          <p className="text-gray-500 text-xs">Réf. dossier : {brief.plateforme_identifiant_dossier}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 italic">
+                        Non renseigné —{' '}
+                        <Link href="/bailleurs" className="text-blue-600 hover:underline">référentiel bailleurs →</Link>
+                      </p>
+                    )}
+
+                    {/* Contact bailleur */}
+                    {(brief?.contact_referent_nom || brief?.contact_referent_email) && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1">Contact bailleur</p>
+                        <div className="text-xs text-gray-700 space-y-0.5">
+                          {brief.contact_referent_nom && <p className="font-medium">{brief.contact_referent_nom}</p>}
+                          {brief.contact_referent_email && <p>{brief.contact_referent_email}</p>}
+                          {brief.contact_referent_telephone && <p>{brief.contact_referent_telephone}</p>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ce qui change — uniquement si renouvellement avec demande précédente liée */}
+                {brief?.type_renouvellement === 'renouvellement' && (brief?.montant_demande_precedent != null || brief?.beneficiaires_precedent != null) && (
+                  <div className="border-t border-blue-100 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Évolution vs demande précédente</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {brief.montant_demande_precedent != null && (
+                        <div className="bg-white rounded-lg p-3">
+                          <p className="text-xs text-gray-500">Montant N-1</p>
+                          <p className="text-sm font-semibold text-gray-900">{brief.montant_demande_precedent.toLocaleString('fr-FR')} €</p>
+                          {brief.montant_obtenu_precedent != null && (
+                            <p className="text-xs text-green-600">{brief.montant_obtenu_precedent.toLocaleString('fr-FR')} € obtenus</p>
+                          )}
+                        </div>
+                      )}
+                      {brief.montant_demande_actuel != null && (
+                        <div className="bg-white rounded-lg p-3">
+                          <p className="text-xs text-gray-500">Montant demandé</p>
+                          <p className="text-sm font-semibold text-gray-900">{brief.montant_demande_actuel.toLocaleString('fr-FR')} €</p>
+                          {brief.ecart_montant_demande_pct != null && (
+                            <p className={`text-xs ${brief.ecart_montant_demande_pct >= 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                              {brief.ecart_montant_demande_pct > 0 ? '+' : ''}{brief.ecart_montant_demande_pct} %
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {brief.beneficiaires_precedent != null && (
+                        <div className="bg-white rounded-lg p-3">
+                          <p className="text-xs text-gray-500">Bénéficiaires</p>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {brief.beneficiaires_actuel ?? '?'} prévus
+                            {brief.ecart_beneficiaires != null && (
+                              <span className={`ml-1 text-xs ${brief.ecart_beneficiaires >= 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                                ({brief.ecart_beneficiaires > 0 ? '+' : ''}{brief.ecart_beneficiaires} vs réel N-1)
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500">{brief.beneficiaires_precedent} réels N-1</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ce qui change — narratif, éditable inline */}
+                    <div>
+                      <p className="text-xs font-semibold text-blue-700 mb-1.5">Ce qui change cette année <span className="text-gray-400 font-normal">(narratif consultant)</span></p>
+                      <CeQuiChangeEditor
+                        demandeId={id}
+                        value={brief.ce_qui_change_cette_annee || ''}
+                        onSaved={async (v) => {
+                          setSavingCeQuiChange(true);
+                          await fetch(`/api/demandes/${id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ce_qui_change_cette_annee: v || null }),
+                          });
+                          await loadBrief();
+                          setSavingCeQuiChange(false);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
             {/* Colonne gauche */}
@@ -360,16 +540,58 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     <Field label="Titre du projet">
                       <input className="field-input" value={draft.titre_projet} onChange={e => setField('titre_projet', e.target.value)} placeholder="Ex : Ateliers d'insertion numérique pour les jeunes décrocheurs du 13e" />
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Bailleur">
-                        <input className="field-input" value={draft.bailleur_nom} onChange={e => setField('bailleur_nom', e.target.value)} placeholder="Ex : Ville de Paris — DASES" />
-                      </Field>
-                      <Field label="Type de bailleur">
-                        <select className="field-input" value={draft.bailleur_type} onChange={e => setField('bailleur_type', e.target.value as FullDraft['bailleur_type'])}>
-                          <option value="">—</option>
-                          <option value="ville">Ville / Commune</option>
-                          <option value="departement">Département</option>
+                    {/* Bailleur : référentiel ou texte libre */}
+                    <div className="space-y-2">
+                      <Field label="Bailleur (référentiel)">
+                        <select
+                          className="field-input"
+                          value={draft.bailleur_id}
+                          onChange={e => {
+                            const sel = bailleurs.find(b => b.id === e.target.value);
+                            setField('bailleur_id', e.target.value);
+                            if (sel && !draft.bailleur_nom) setField('bailleur_nom', sel.nom);
+                          }}
+                        >
+                          <option value="">— Saisie libre ou choisir dans le référentiel —</option>
+                          {bailleurs.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
                         </select>
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Nom du bailleur (texte libre)">
+                          <input className="field-input" value={draft.bailleur_nom} onChange={e => setField('bailleur_nom', e.target.value)} placeholder="Ex : Ville de Paris — DASES" />
+                        </Field>
+                        <Field label="Type de bailleur">
+                          <select className="field-input" value={draft.bailleur_type} onChange={e => setField('bailleur_type', e.target.value as FullDraft['bailleur_type'])}>
+                            <option value="">—</option>
+                            <option value="ville">Ville / Commune</option>
+                            <option value="departement">Département</option>
+                          </select>
+                        </Field>
+                      </div>
+                    </div>
+                    {/* Demande précédente */}
+                    {suggestions.length > 0 && (
+                      <Field label="Demande précédente (renouvellement)">
+                        <select
+                          className="field-input"
+                          value={draft.demande_precedente_id}
+                          onChange={e => setField('demande_precedente_id', e.target.value)}
+                        >
+                          <option value="">— Pas de lien ou première demande —</option>
+                          {suggestions.map(s => (
+                            <option key={s.demande_candidate_id} value={s.demande_candidate_id}>
+                              {s.titre_projet || '(sans titre)'}{s.annee_millesime ? ` — ${s.annee_millesime}` : ''}{s.montant_demande ? ` — ${s.montant_demande.toLocaleString('fr-FR')} €` : ''} [{s.statut}]
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Millésime (année)">
+                        <input type="number" className="field-input" value={draft.annee_millesime} onChange={e => setField('annee_millesime', e.target.value)} placeholder={new Date().getFullYear().toString()} min={1990} max={2100} />
+                      </Field>
+                      <Field label="Réf. dossier plateforme">
+                        <input className="field-input" value={draft.plateforme_identifiant_dossier} onChange={e => setField('plateforme_identifiant_dossier', e.target.value)} placeholder="N° dossier sur Dauphin, etc." />
                       </Field>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
@@ -402,6 +624,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   <div className="space-y-2.5">
                     <Row label="Titre" value={demande.titre_projet} />
                     <Row label="Bailleur" value={demande.bailleur_nom ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})` : ''}` : undefined} />
+                    {demande.annee_millesime && <Row label="Millésime" value={demande.annee_millesime.toString()} />}
+                    {demande.plateforme_identifiant_dossier && <Row label="Réf. plateforme" value={demande.plateforme_identifiant_dossier} />}
                     <Row label="Période" value={`${demande.periode_debut || '?'} → ${demande.periode_fin || '?'}`} />
                     <Row label="Montant demandé" value={demande.montant_demande ? `${fmt(demande.montant_demande)} €` : undefined} />
                     <Row label="Thématique" value={det.thematique} />
@@ -701,6 +925,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
               </div>
             </div>
           </div>
+          </div>
         )}
 
         {/* ── IA ──────────────────────────────────────────────────── */}
@@ -800,6 +1025,57 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 
 function EmptyHint({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 italic">{text}</p>;
+}
+
+function CeQuiChangeEditor({ demandeId: _demandeId, value, onSaved }: {
+  demandeId: string;
+  value: string;
+  onSaved: (v: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  if (!editing) {
+    return (
+      <div className="group relative">
+        {value ? (
+          <p className="text-sm text-gray-700 leading-relaxed">{value}</p>
+        ) : (
+          <p className="text-sm text-gray-400 italic">À renseigner par le consultant…</p>
+        )}
+        <button
+          onClick={() => { setDraft(value); setEditing(true); }}
+          className="mt-1 text-xs text-blue-500 hover:text-blue-700"
+        >
+          {value ? '✏️ Modifier' : '+ Renseigner'}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        className="field-input text-sm w-full"
+        rows={3}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        placeholder="Ex : l'association ouvre une 3e antenne cette année / le bailleur a réduit son enveloppe de 20%…"
+        autoFocus
+      />
+      <div className="flex gap-2">
+        <button onClick={() => setEditing(false)} className="btn btn-ghost text-xs">Annuler</button>
+        <button
+          onClick={async () => { setSaving(true); await onSaved(draft); setSaving(false); setEditing(false); }}
+          disabled={saving}
+          className="btn btn-primary text-xs"
+        >
+          {saving ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ── Budget view ─────────────────────────────────────────────────── */

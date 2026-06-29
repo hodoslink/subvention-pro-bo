@@ -21,6 +21,8 @@ type AssoDraft = {
   contact_role: string;
   contact_email: string;
   contact_telephone: string;
+  site_web_url: string;
+  secteur_activite: string;
 };
 
 function draftFromAsso(a: Association): AssoDraft {
@@ -39,6 +41,8 @@ function draftFromAsso(a: Association): AssoDraft {
     contact_role: a.contact_role || '',
     contact_email: a.contact_email || '',
     contact_telephone: a.contact_telephone || '',
+    site_web_url: a.site_web_url || '',
+    secteur_activite: a.secteur_activite || '',
   };
 }
 
@@ -72,6 +76,13 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
   const [draft, setDraft] = useState<AssoDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Résumé
+  const [editingResume, setEditingResume] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState('');
+  const [savingResume, setSavingResume] = useState(false);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState('');
 
   const load = () =>
     fetch(`/api/associations/${id}`)
@@ -111,6 +122,8 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
       contact_role: draft.contact_role || null,
       contact_email: draft.contact_email || undefined,
       contact_telephone: draft.contact_telephone || null,
+      site_web_url: draft.site_web_url || null,
+      secteur_activite: draft.secteur_activite || null,
     };
     await fetch(`/api/associations/${id}`, {
       method: 'PATCH',
@@ -124,12 +137,48 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
     setTimeout(() => setSaved(false), 2500);
   };
 
+  const startEditResume = () => {
+    setResumeDraft(asso?.resume_edite || asso?.resume_scrape || '');
+    setEditingResume(true);
+  };
+
+  const saveResume = async () => {
+    setSavingResume(true);
+    await fetch(`/api/associations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume_edite: resumeDraft || null, resume_edite_par: 'consultant' }),
+    });
+    await load();
+    setSavingResume(false);
+    setEditingResume(false);
+  };
+
+  const scrape = async () => {
+    setScraping(true);
+    setScrapeMsg('');
+    const r = await fetch(`/api/associations/${id}/scraper`, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok) {
+      setScrapeMsg('Erreur : ' + (data.error || data.detail || 'Problème lors du scraping'));
+    } else if (data.no_key) {
+      setScrapeMsg('Texte récupéré mais clé HUGGINGFACE_API_KEY non configurée — résumé IA non généré. Ajoutez la clé dans Vercel pour activer le résumé automatique.');
+      await load();
+    } else {
+      setScrapeMsg('Contexte mis à jour.');
+      await load();
+    }
+    setScraping(false);
+  };
+
   if (loading) return <AppShell><div className="p-8 text-gray-400">Chargement…</div></AppShell>;
   if (!asso || !draft) return <AppShell><div className="p-8 text-red-500">Association introuvable</div></AppShell>;
 
   const totalDemande = demandes.reduce((s, d) => s + (d.montant_demande || 0), 0);
   const totalObtenu = demandes.reduce((s, d) => s + (d.montant_obtenu || 0), 0);
   const acceptes = demandes.filter(d => d.statut === 'accepte').length;
+  const resumeVisible = asso.resume_edite || asso.resume_scrape;
+  const resumeIsEdited = !!asso.resume_edite;
 
   return (
     <AppShell>
@@ -154,6 +203,76 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
                 </>
             }
           </div>
+        </div>
+
+        {/* Résumé de l'association */}
+        <div className="card space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">Qui est cette association ?</h2>
+              {resumeIsEdited && (
+                <span className="text-xs text-green-600 font-medium">Version validée par le consultant</span>
+              )}
+              {!resumeIsEdited && asso.resume_scrape && (
+                <span className="text-xs text-gray-400">Généré automatiquement — à relire et valider</span>
+              )}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {asso.site_web_url && (
+                <button
+                  onClick={scrape}
+                  disabled={scraping}
+                  className="btn btn-ghost text-xs"
+                  title="Scrape le site web et génère un résumé via IA"
+                >
+                  {scraping ? '⏳ Actualisation…' : '🔄 Actualiser le contexte'}
+                </button>
+              )}
+              <button onClick={startEditResume} className="btn btn-ghost text-xs">✏️ Éditer ce résumé</button>
+            </div>
+          </div>
+
+          {scrapeMsg && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">{scrapeMsg}</p>
+          )}
+
+          {editingResume ? (
+            <div className="space-y-2">
+              <textarea
+                className="field-input text-sm w-full"
+                rows={4}
+                value={resumeDraft}
+                onChange={e => setResumeDraft(e.target.value)}
+                placeholder="Décrivez l'association en 3-4 phrases : ce qu'elle fait, pour qui, depuis quand, sur quel territoire…"
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setEditingResume(false)} className="btn btn-ghost text-xs">Annuler</button>
+                <button onClick={saveResume} disabled={savingResume} className="btn btn-primary text-xs">
+                  {savingResume ? 'Enregistrement…' : '💾 Valider ce résumé'}
+                </button>
+              </div>
+            </div>
+          ) : resumeVisible ? (
+            <p className="text-sm text-gray-700 leading-relaxed">{resumeVisible}</p>
+          ) : (
+            <div className="text-sm text-gray-400 italic">
+              Aucun résumé pour l'instant.{' '}
+              {asso.site_web_url
+                ? 'Cliquez sur « Actualiser le contexte » pour générer un résumé automatique depuis le site web.'
+                : 'Renseignez l\'URL du site web (section Informations) pour activer la génération automatique, ou rédigez directement via « Éditer ce résumé ».'}
+            </div>
+          )}
+
+          {asso.resume_scrape_le && !resumeIsEdited && (
+            <p className="text-xs text-gray-300">
+              Mis à jour le {new Date(asso.resume_scrape_le).toLocaleDateString('fr-FR')}
+            </p>
+          )}
+          {asso.resume_edite_le && resumeIsEdited && (
+            <p className="text-xs text-gray-300">
+              Validé le {new Date(asso.resume_edite_le).toLocaleDateString('fr-FR')}
+            </p>
+          )}
         </div>
 
         {/* Chiffres clés */}
@@ -187,6 +306,8 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
                 </div>
                 <FieldInput label="SIREN" value={draft.siren} onChange={v => setF('siren', v)} placeholder="9 chiffres" />
                 <FieldInput label="Forme juridique" value={draft.forme_juridique} onChange={v => setF('forme_juridique', v)} placeholder="Association loi 1901" />
+                <FieldInput label="Secteur d'activité" value={draft.secteur_activite} onChange={v => setF('secteur_activite', v)} placeholder="Ex. santé, insertion, culture…" />
+                <FieldInput label="Site web" value={draft.site_web_url} onChange={v => setF('site_web_url', v)} placeholder="https://…" type="url" />
                 <FieldInput label="Adresse" value={draft.adresse} onChange={v => setF('adresse', v)} />
                 <div className="grid grid-cols-2 gap-3">
                   <FieldInput label="Code postal" value={draft.code_postal} onChange={v => setF('code_postal', v)} />
@@ -203,6 +324,13 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
                 <F label="SIRET" value={asso.siret} />
                 <F label="SIREN" value={asso.siren} />
                 <F label="Forme juridique" value={asso.forme_juridique} />
+                <F label="Secteur" value={asso.secteur_activite} />
+                {asso.site_web_url && (
+                  <div className="flex justify-between text-sm gap-4">
+                    <span className="text-gray-500 shrink-0">Site web</span>
+                    <a href={asso.site_web_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-right truncate">{asso.site_web_url}</a>
+                  </div>
+                )}
                 <F label="Adresse" value={[asso.adresse, asso.code_postal, asso.ville].filter(Boolean).join(', ')} />
                 <F label="Membres" value={asso.nb_membres?.toString()} />
                 <F label="Création" value={asso.date_creation ? new Date(asso.date_creation).toLocaleDateString('fr-FR') : undefined} />

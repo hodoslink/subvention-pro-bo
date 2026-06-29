@@ -7,6 +7,7 @@ const NAV = [
   { href: "/suivi", label: "Suivi pipeline", icon: "🗂" },
   { href: "/demandes", label: "Toutes les demandes", icon: "📋" },
   { href: "/associations", label: "Associations", icon: "🏛" },
+  { href: "/bailleurs", label: "Bailleurs", icon: "🏦" },
 ];
 
 export function Sidebar() {

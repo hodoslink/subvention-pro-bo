@@ -14,6 +14,49 @@ export type TypeDemande = 'premiere' | 'renouvellement';
 
 export type BaillleurType = 'ville' | 'departement';
 
+export type Bailleur = {
+  id: string;
+  created_at: string;
+  nom: string;
+  type_bailleur?: string;
+  plateforme_nom?: string;
+  plateforme_url?: string;
+  plateforme_type?: string;
+  contact_referent_nom?: string;
+  contact_referent_email?: string;
+  contact_referent_telephone?: string;
+  notes?: string;
+};
+
+export type BriefMission = {
+  demande_id: string;
+  titre_projet?: string;
+  annee_actuelle?: number;
+  association_nom: string;
+  site_web_url?: string;
+  resume_association?: string;
+  secteur_activite?: string;
+  type_renouvellement: 'premiere' | 'renouvellement';
+  plateforme_url_effective?: string;
+  plateforme_nom?: string;
+  plateforme_type?: string;
+  plateforme_identifiant_dossier?: string;
+  annee_precedente?: number;
+  montant_demande_precedent?: number;
+  montant_obtenu_precedent?: number;
+  beneficiaires_precedent?: number;
+  statut_demande_precedente?: string;
+  montant_demande_actuel?: number;
+  beneficiaires_actuel?: number;
+  ecart_montant_demande?: number;
+  ecart_montant_demande_pct?: number;
+  ecart_beneficiaires?: number;
+  ce_qui_change_cette_annee?: string;
+  contact_referent_nom?: string;
+  contact_referent_email?: string;
+  contact_referent_telephone?: string;
+};
+
 export type BudgetLigne = { poste: string; montant?: string | number };
 
 export type BudgetV2 = {
@@ -56,6 +99,14 @@ export type Association = {
   nb_membres?: number;
   date_creation?: string;
   statut_profil: string;
+  site_web_url?: string;
+  resume_scrape?: string;
+  resume_scrape_le?: string;
+  resume_edite?: string;
+  resume_edite_par?: string;
+  resume_edite_le?: string;
+  secteur_activite?: string;
+  annee_creation?: number;
 };
 
 export type Demande = {
@@ -87,8 +138,15 @@ export type Demande = {
   contact_role?: string;
   contact_email?: string;
   contact_telephone?: string;
+  bailleur_id?: string;
+  plateforme_url_specifique?: string;
+  plateforme_identifiant_dossier?: string;
+  demande_precedente_id?: string;
+  ce_qui_change_cette_annee?: string;
+  annee_millesime?: number;
   // joined
   associations?: Association;
+  bailleurs?: Bailleur;
 };
 
 export type JournalEntry = {

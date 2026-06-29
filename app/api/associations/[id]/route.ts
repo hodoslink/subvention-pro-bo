@@ -17,6 +17,10 @@ const patchSchema = z.object({
   contact_role: z.string().max(200).optional().nullable(),
   contact_email: z.string().email().max(300).optional(),
   contact_telephone: z.string().max(30).optional().nullable(),
+  site_web_url: z.string().max(500).optional().nullable(),
+  resume_edite: z.string().max(2000).optional().nullable(),
+  resume_edite_par: z.string().max(200).optional().nullable(),
+  secteur_activite: z.string().max(200).optional().nullable(),
 });
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
