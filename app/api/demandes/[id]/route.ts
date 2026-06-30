@@ -65,7 +65,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 422 });
+    const issue = parsed.error.issues[0];
+    const field = issue?.path?.join('.') || '';
+    const msg = issue?.message || 'Données invalides';
+    return NextResponse.json({ error: field ? `${field} : ${msg}` : msg }, { status: 422 });
   }
 
   const supabase = getSupabaseServer();

@@ -521,6 +521,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         : undefined,
     };
     const isValidEmail = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+    const VALID_BAILLEUR = new Set(['etat', 'commune', 'epci', 'departement', 'region', 'etablissement_public', 'prive', 'autre']);
     try {
       const res = await fetch(`/api/demandes/${id}`, {
         method: 'PATCH',
@@ -528,7 +529,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         body: JSON.stringify({
           titre_projet: draft.titre_projet || null,
           bailleur_nom: draft.bailleur_nom || null,
-          bailleur_type: draft.bailleur_type || null,
+          bailleur_type: draft.bailleur_type && VALID_BAILLEUR.has(draft.bailleur_type) ? draft.bailleur_type : null,
           montant_demande: draft.montant_demande ? Number(draft.montant_demande) : null,
           periode_debut: draft.periode_debut || null,
           periode_fin: draft.periode_fin || null,
