@@ -251,7 +251,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [budgetEquilibre, setBudgetEquilibre] = useState<BudgetEquilibre | null>(null);
   const [budgetTaux, setBudgetTaux] = useState<TauxFinancement[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [integrationEnCours, setIntegrationEnCours] = useState(false);
 
   const chargesCardRef = useRef<HTMLDivElement>(null);
   const prestataireCardRef = useRef<HTMLDivElement>(null);
@@ -404,21 +403,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       const ref = sectionCible === 'Prestataires et moyens matériels' ? prestataireCardRef : chargesCardRef;
       ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 80);
-  };
-
-  const integrerMontantDemande = async () => {
-    if (!demande) return;
-    setIntegrationEnCours(true);
-    await fetch(`/api/demandes/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        montant_demande: demande.montant_demande ?? null,
-        details_json: demande.details_json ?? {},
-      }),
-    });
-    await loadBudgetLignes();
-    setIntegrationEnCours(false);
   };
 
   const lignesAutoPreview = useMemo(() => {
@@ -1488,22 +1472,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : budgetLignes.length > 0 ? (
                   <>
                     <BudgetLignesView lignes={budgetLignes} demandeId={id} />
-                    {/* Bouton d'intégration du montant demandé si ligne absente */}
-                    {demande.montant_demande != null && demande.montant_demande > 0 &&
-                     !budgetLignes.some(l => l.cle_generation === 'auto_montant_demande_bailleur') && (
-                      <div className="border border-amber-200 bg-amber-50 rounded-lg px-3 py-2.5 flex items-center justify-between gap-3 mt-1">
-                        <p className="text-sm text-amber-800">
-                          Le montant demandé ({fmt(demande.montant_demande)} €) n&apos;est pas encore intégré au budget comme ligne de recette.
-                        </p>
-                        <button
-                          onClick={integrerMontantDemande}
-                          disabled={integrationEnCours}
-                          className="shrink-0 text-xs font-medium bg-amber-600 text-white rounded px-2.5 py-1.5 hover:bg-amber-700 disabled:opacity-50"
-                        >
-                          {integrationEnCours ? '…' : 'Ajouter'}
-                        </button>
-                      </div>
-                    )}
                     {/* Équilibre global depuis v_budget_equilibre */}
                     {budgetEquilibre && (
                       <BudgetEquilibreBlock equilibre={budgetEquilibre} taux={budgetTaux} />
