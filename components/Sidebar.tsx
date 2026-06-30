@@ -15,7 +15,7 @@ const NAV = [
 export function Sidebar() {
   const path = usePathname();
   const router = useRouter();
-  const [profile, setProfile] = useState<Pick<Profile, 'nom_complet' | 'role'> | null>(null);
+  const [profile, setProfile] = useState<Pick<Profile, 'id' | 'nom_complet' | 'role'> | null>(null);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -55,6 +55,20 @@ export function Sidebar() {
             </Link>
           );
         })}
+        {profile?.role === 'admin' && (
+          <Link
+            href="/admin/utilisateurs"
+            className={[
+              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors",
+              path.startsWith("/admin")
+                ? "bg-purple-50 text-purple-700 font-medium"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+            ].join(" ")}
+          >
+            <span className="w-4 text-center">👥</span>
+            Utilisateurs
+          </Link>
+        )}
       </nav>
       {profile && (
         <div className="px-4 py-3 border-t border-gray-100 space-y-2">
