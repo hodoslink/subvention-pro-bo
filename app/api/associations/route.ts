@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
+import { getProfileFromRequest } from '@/lib/supabase-route-handler';
 import { associationSchema } from '@/lib/validation';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get('q');
 
+  const profile = await getProfileFromRequest(req);
+
   const supabase = getSupabaseServer();
   let query = supabase
     .from('associations')
     .select('id, nom, ville, contact_email, statut_profil, created_at')
     .order('nom');
+
+  // Consultants ne voient que leurs propres associations
+  if (profile && profile.role === 'consultant') {
+    query = query.eq('consultant_id', profile.id);
+  }
 
   if (q) query = query.ilike('nom', `%${q}%`);
 

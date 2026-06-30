@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import type { Profile } from "@/lib/supabase";
 
 const NAV = [
   { href: "/", label: "Tableau de bord", icon: "▦" },
@@ -12,6 +14,22 @@ const NAV = [
 
 export function Sidebar() {
   const path = usePathname();
+  const router = useRouter();
+  const [profile, setProfile] = useState<Pick<Profile, 'nom_complet' | 'role'> | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then(({ profile }) => setProfile(profile))
+      .catch(() => {});
+  }, []);
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  }
+
   return (
     <aside className="w-56 shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-screen">
       <div className="px-5 py-4 border-b border-gray-100">
@@ -38,6 +56,25 @@ export function Sidebar() {
           );
         })}
       </nav>
+      {profile && (
+        <div className="px-4 py-3 border-t border-gray-100 space-y-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center shrink-0">
+              {profile.nom_complet.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-800 truncate">{profile.nom_complet}</p>
+              <p className="text-xs text-gray-400 capitalize">{profile.role}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full text-left text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-50 transition-colors"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

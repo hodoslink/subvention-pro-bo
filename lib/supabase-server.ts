@@ -1,6 +1,6 @@
 // Client Supabase qui lit la session depuis les cookies Next.js.
-// À utiliser dans : middleware.ts, Server Components, et Server Actions.
-// NE PAS utiliser dans les API routes existantes (elles gardent le service role).
+// À utiliser dans : Server Components et Server Actions uniquement.
+// Pour les Route Handlers, utiliser lib/supabase-route-handler.ts
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -39,3 +39,4 @@ export async function getCurrentProfile() {
     .single();
   return profile ?? null;
 }
+

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
+import { getProfileFromRequest } from '@/lib/supabase-route-handler';
 import { syncBudgetAutoLignes } from '@/lib/budgetSync';
 import { z } from 'zod';
 
@@ -73,7 +74,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: field ? `${field} : ${msg}` : msg }, { status: 422 });
   }
 
-  const supabase = getSupabaseServer();
+  const [supabase, profile] = [getSupabaseServer(), await getProfileFromRequest(req)];
   const { data, error } = await supabase
     .from('demandes')
     .update(parsed.data)
@@ -89,6 +90,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       demande_id: id,
       evenement: 'statut_change',
       detail: `Statut → ${parsed.data.statut}`,
+      ...(profile ? { user_id: profile.id } : {}),
     });
   }
 

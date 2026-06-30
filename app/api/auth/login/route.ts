@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { createRouteHandlerClient } from '@/lib/supabase-route-handler';
 
 export async function POST(request: NextRequest) {
   const { email, password } = await request.json();
@@ -9,14 +8,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Email et mot de passe requis.' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const supabase = createSupabaseServerClient(cookieStore);
-
+  const response = NextResponse.json({ ok: true });
+  const supabase = createRouteHandlerClient(request, response);
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error || !data.session) {
     return NextResponse.json({ error: 'Identifiants incorrects.' }, { status: 401 });
   }
 
-  return NextResponse.json({ ok: true });
+  return response;
 }

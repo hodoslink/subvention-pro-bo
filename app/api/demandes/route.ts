@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
+import { getProfileFromRequest } from '@/lib/supabase-route-handler';
 import { randomUUID } from 'crypto';
 import { demandeSchema } from '@/lib/validation';
 
@@ -11,11 +12,18 @@ export async function GET(req: NextRequest) {
   const presta = searchParams.get('presta');
   const q = searchParams.get('q');
 
+  const profile = await getProfileFromRequest(req);
+
   const supabase = getSupabaseServer();
   let query = supabase
     .from('demandes')
     .select('*, associations(id, nom, ville, contact_email)')
     .order('created_at', { ascending: false });
+
+  // Consultants ne voient que leurs propres demandes
+  if (profile && profile.role === 'consultant') {
+    query = query.eq('consultant_id', profile.id);
+  }
 
   if (asso) query = query.eq('association_id', asso);
   if (statut) query = query.eq('statut', statut);

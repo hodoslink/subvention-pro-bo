@@ -1,10 +1,9 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@/lib/supabase-route-handler';
 
-export async function POST() {
-  const cookieStore = await cookies();
-  const supabase = createSupabaseServerClient(cookieStore);
+export async function POST(request: NextRequest) {
+  const response = NextResponse.json({ ok: true });
+  const supabase = createRouteHandlerClient(request, response);
   await supabase.auth.signOut();
-  return NextResponse.json({ ok: true });
+  return response;
 }
