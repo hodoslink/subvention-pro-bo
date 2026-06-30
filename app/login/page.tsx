@@ -1,7 +1,8 @@
 'use client';
 
-import { Suspense, useState, FormEvent } from 'react';
+import { Suspense, useState, useEffect, FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr';
 
 function LoginForm() {
   const router = useRouter();
@@ -12,6 +13,38 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Si Supabase redirige ici avec un magic link (implicit flow),
+  // les tokens arrivent dans le hash — on les traite silencieusement.
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+
+    const hp = new URLSearchParams(hash.slice(1));
+    const accessToken = hp.get('access_token');
+    const refreshToken = hp.get('refresh_token');
+    const type = hp.get('type');
+
+    if (accessToken && refreshToken && type === 'magiclink') {
+      setLoading(true);
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      );
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error: e }) => {
+          if (e) {
+            setError('Lien invalide ou expiré.');
+            setLoading(false);
+          } else {
+            // Nettoyer le hash puis naviguer
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            router.replace(next);
+          }
+        });
+    }
+  }, [next, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -32,6 +65,15 @@ function LoginForm() {
       setError(body.error ?? 'Identifiants incorrects.');
       setLoading(false);
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex flex-col items-center gap-4">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+        <p className="text-sm text-gray-500">Connexion en cours…</p>
+      </div>
+    );
   }
 
   return (
