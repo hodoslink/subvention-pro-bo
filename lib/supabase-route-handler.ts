@@ -25,6 +25,23 @@ export function createRouteHandlerClient(req: NextRequest, res: NextResponse) {
   );
 }
 
+// Retourne uniquement l'utilisateur authentifié (sans profil) — pour les routes publiques
+// accessibles aux associations (pas de profil dans la table profiles requis).
+export async function getUserFromRequest(request: NextRequest) {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return request.cookies.getAll(); },
+        setAll() {},
+      },
+    }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  return user ?? null;
+}
+
 // Client en lecture seule — pour identifier l'utilisateur sans avoir à écrire des cookies.
 export async function getProfileFromRequest(request: NextRequest) {
   const supabase = createServerClient(

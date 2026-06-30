@@ -270,11 +270,13 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [groupeMembers, setGroupeMembers] = useState<Array<{ id: string; titre_projet: string | null; annee_millesime: number | null; statut: string; montant_demande: number | null; montant_obtenu: number | null; numero_annee_dans_groupe: number | null; nombre_annees_total_groupe: number | null }> | null>(null);
   const [aidesSeuil, setAidesSeuil] = useState<{ total: number; depasse_seuil: boolean } | null>(null);
   const [lienFormulaire, setLienFormulaire] = useState<{
-    url: string | null;
-    token_genere_le: string | null;
     ouvert_le: string | null;
     rempli_le: string | null;
+    dernier_envoi: { email: string; envoye_le: string } | null;
+    historique: Array<{ email: string; envoye_le: string }>;
   } | null>(null);
+  const [lienEmail, setLienEmail] = useState('');
+  const [lienUrl, setLienUrl] = useState<string | null>(null);
   const [lienGenerating, setLienGenerating] = useState(false);
 
   const loadDemande = async () => {
@@ -286,6 +288,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     setEditNotes(d?.notes || '');
     setEditMontantObtenu(d?.montant_obtenu?.toString() || '');
     setDraft(draftFromDemande(d));
+    setLienEmail(prev => prev || d?.contact_email || '');
     setLoading(false);
   };
 
@@ -1809,49 +1812,69 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       <span>Formulaire ouvert le {new Date(lienFormulaire.ouvert_le).toLocaleDateString('fr-FR')} — aucune réponse enregistrée</span>
                     </div>
                   )}
-                  {lienFormulaire?.url ? (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-gray-500 font-medium">Email de l&apos;association</label>
+                    <input
+                      type="email"
+                      className="field-input"
+                      value={lienEmail}
+                      onChange={e => setLienEmail(e.target.value)}
+                      placeholder="contact@association.fr"
+                    />
+                  </div>
+                  {lienUrl && (
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-500">Lien à envoyer à l'association :</p>
+                      <p className="text-xs text-gray-500">Lien magic à copier et envoyer à l&apos;association :</p>
                       <div className="flex items-center gap-2">
                         <input
                           readOnly
-                          value={lienFormulaire.url}
+                          value={lienUrl}
                           className="field-input text-xs flex-1 bg-gray-50"
                           onClick={e => (e.target as HTMLInputElement).select()}
                         />
                         <button
                           className="btn btn-ghost text-xs shrink-0"
-                          onClick={() => navigator.clipboard.writeText(lienFormulaire.url ?? '')}
+                          onClick={() => navigator.clipboard.writeText(lienUrl ?? '')}
                         >
                           Copier
                         </button>
                       </div>
-                      {lienFormulaire.token_genere_le && (
-                        <p className="text-xs text-gray-400">Généré le {new Date(lienFormulaire.token_genere_le).toLocaleDateString('fr-FR')}</p>
-                      )}
+                      <p className="text-xs text-amber-600">Ce lien est à usage unique — copiez-le avant de fermer.</p>
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">Aucun lien généré pour l'instant.</p>
+                  )}
+                  {!lienUrl && lienFormulaire?.dernier_envoi && (
+                    <p className="text-xs text-gray-400">
+                      Dernier lien généré pour {lienFormulaire.dernier_envoi.email} le {new Date(lienFormulaire.dernier_envoi.envoye_le).toLocaleDateString('fr-FR')}
+                    </p>
+                  )}
+                  {!lienUrl && !lienFormulaire?.dernier_envoi && (
+                    <p className="text-sm text-gray-500">Aucun lien généré pour l&apos;instant.</p>
                   )}
                   <button
                     className="btn btn-primary text-sm"
-                    disabled={lienGenerating}
+                    disabled={lienGenerating || !lienEmail.includes('@')}
                     onClick={async () => {
                       setLienGenerating(true);
+                      setLienUrl(null);
                       try {
-                        const res = await fetch(`/api/demandes/${id}/lien-formulaire`, { method: 'POST' });
+                        const res = await fetch(`/api/demandes/${id}/lien-formulaire`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ email: lienEmail }),
+                        });
                         if (res.ok) {
                           const data = await res.json();
-                          setLienFormulaire(prev => ({ ...prev, url: data.url, token_genere_le: data.token_genere_le, ouvert_le: prev?.ouvert_le ?? null, rempli_le: prev?.rempli_le ?? null }));
+                          setLienUrl(data.url);
+                          await loadLienFormulaire();
                         }
                       } finally {
                         setLienGenerating(false);
                       }
                     }}
                   >
-                    {lienGenerating ? 'Génération…' : lienFormulaire?.url ? '🔄 Régénérer le lien' : '🔗 Générer le lien'}
+                    {lienGenerating ? 'Génération…' : '🔗 Générer le lien magic'}
                   </button>
-                  <p className="text-xs text-gray-400">Régénérer invalide l'ancien lien immédiatement.</p>
+                  <p className="text-xs text-gray-400">Chaque génération crée un nouveau lien à usage unique.</p>
                 </div>
               </SectionCard>
 

@@ -6,7 +6,6 @@ type Details = Record<string, unknown>;
 
 interface Props {
   demandeId: string;
-  token: string;
   associationNom: string;
   dateLimiteDepot: string | null;
   titreProjet: string | null;
@@ -29,7 +28,6 @@ function boolVal(details: Details, key: string): boolean {
 
 export default function FormulairePublicClient({
   demandeId,
-  token,
   associationNom,
   dateLimiteDepot,
   titreProjet,
@@ -59,7 +57,7 @@ export default function FormulairePublicClient({
       const res = await fetch(`/api/public/formulaire/${demandeId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, ...details }),
+        body: JSON.stringify({ ...details }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));

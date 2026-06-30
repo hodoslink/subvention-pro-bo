@@ -1,28 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
+import { getUserFromRequest } from '@/lib/supabase-route-handler';
 import { validerReponsesFormulairePublic } from '@/lib/validationFormulairePublic';
 import { syncBudgetAutoLignes } from '@/lib/budgetSync';
 import { rateLimit, getClientIp } from '@/lib/rateLimit';
 
-async function resolveToken(id: string, token: string | null) {
-  if (!token) return null;
+async function getDemande(id: string) {
   const supabase = getSupabaseServer();
   const { data } = await supabase
     .from('demandes')
-    .select('id, token_formulaire_public, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot')
+    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot')
     .eq('id', id)
-    .eq('token_formulaire_public', token)
     .single();
   return data ?? null;
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const token = req.nextUrl.searchParams.get('t');
 
-  const demande = await resolveToken(id, token);
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: 'Session expirée. Utilisez le lien reçu par email.' }, { status: 401 });
+  }
+
+  const demande = await getDemande(id);
   if (!demande) {
-    return NextResponse.json({ error: 'Lien invalide ou expiré.' }, { status: 403 });
+    return NextResponse.json({ error: 'Formulaire introuvable.' }, { status: 404 });
   }
 
   // Mark first open
@@ -43,6 +46,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: 'Session expirée. Utilisez le lien reçu par email.' }, { status: 401 });
+  }
+
   // Rate limiting
   const ip = getClientIp(req);
   const { allowed } = rateLimit(`formulaire:${ip}:${id}`, { max: 30, windowMs: 10 * 60 * 1000 });
@@ -55,18 +63,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Corps invalide' }, { status: 400 });
   }
 
-  const { token, ...formData } = body as Record<string, unknown>;
-  const demande = await resolveToken(id, (token as string) ?? null);
+  const demande = await getDemande(id);
   if (!demande) {
-    return NextResponse.json({ error: 'Lien invalide ou expiré.' }, { status: 403 });
+    return NextResponse.json({ error: 'Formulaire introuvable.' }, { status: 404 });
   }
 
-  const validation = validerReponsesFormulairePublic(formData);
+  const validation = validerReponsesFormulairePublic(body as Record<string, unknown>);
   if (!validation.success) {
     return NextResponse.json({ error: validation.error }, { status: 422 });
   }
 
-  // Merge new answers into existing details_json
   const existingDetails = (demande.details_json ?? {}) as Record<string, unknown>;
   const merged = { ...existingDetails, ...validation.data };
 
@@ -75,15 +81,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { error } = await supabase
     .from('demandes')
-    .update({
-      details_json: merged,
-      formulaire_public_rempli_le: now,
-    })
+    .update({ details_json: merged, formulaire_public_rempli_le: now })
     .eq('id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Sync budget auto lines
   await syncBudgetAutoLignes(
     supabase,
     id,
@@ -94,7 +96,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   await supabase.from('journal').insert({
     demande_id: id,
     evenement: 'formulaire_public_rempli',
-    detail: 'Réponses enregistrées via le formulaire public',
+    detail: `Réponses enregistrées (${user.email})`,
+    user_id: user.id,
   });
 
   return NextResponse.json({ ok: true });

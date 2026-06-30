@@ -1,36 +1,38 @@
+import { cookies } from 'next/headers';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { getSupabaseServer } from '@/lib/supabase';
 import FormulairePublicClient from './FormulairePublicClient';
 
 export default async function FormulairePublicPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ t?: string }>;
 }) {
   const { id } = await params;
-  const { t: token } = await searchParams;
 
-  if (!token) {
-    return <PageErreur message="Lien invalide. Veuillez utiliser le lien complet envoyé par votre conseiller." />;
+  const cookieStore = await cookies();
+  const supabase = createSupabaseServerClient(cookieStore);
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return <PageErreur message="Session expirée. Utilisez le lien reçu par email." />;
   }
 
-  const supabase = getSupabaseServer();
+  const supabaseAdmin = getSupabaseServer();
 
-  const { data: demande } = await supabase
+  const { data: demande } = await supabaseAdmin
     .from('demandes')
-    .select('id, token_formulaire_public, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom)')
+    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom)')
     .eq('id', id)
-    .eq('token_formulaire_public', token)
     .single();
 
   if (!demande) {
-    return <PageErreur message="Ce lien est invalide ou a expiré. Contactez votre conseiller." />;
+    return <PageErreur message="Ce formulaire est introuvable. Contactez votre conseiller." />;
   }
 
   // Mark first open (fire and forget)
   if (!demande.formulaire_public_ouvert_le) {
-    supabase
+    supabaseAdmin
       .from('demandes')
       .update({ formulaire_public_ouvert_le: new Date().toISOString() })
       .eq('id', id)
@@ -44,7 +46,6 @@ export default async function FormulairePublicPage({
   return (
     <FormulairePublicClient
       demandeId={id}
-      token={token}
       associationNom={associationNom}
       dateLimiteDepot={demande.date_limite_depot ?? null}
       titreProjet={demande.titre_projet ?? null}
