@@ -227,6 +227,7 @@ const PageEditCtx = createContext<{
   savingDraft: boolean;
   startEdit: () => void;
   saveAll: () => void;
+  cancelEdit: () => void;
 } | null>(null);
 
 export default function FicheDemande({ params }: { params: Promise<{ id: string }> }) {
@@ -245,6 +246,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [draft, setDraft] = useState<FullDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [savedDraft, setSavedDraft] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [budgetLignes, setBudgetLignes] = useState<BudgetLigneDB[]>([]);
   const [budgetEquilibre, setBudgetEquilibre] = useState<BudgetEquilibre | null>(null);
   const [budgetTaux, setBudgetTaux] = useState<TauxFinancement[]>([]);
@@ -456,6 +458,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 
   const saveDossier = async () => {
     if (!draft) return;
+    setSaveError(null);
     setSavingDraft(true);
     const budgetV2: BudgetV2 = {
       _v: 2,
@@ -517,43 +520,54 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         ? draft.adherents_personnes_morales.split(',').map(s => ({ nom: s.trim() })).filter(a => a.nom)
         : undefined,
     };
-    await fetch(`/api/demandes/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        titre_projet: draft.titre_projet || null,
-        bailleur_nom: draft.bailleur_nom || null,
-        bailleur_type: draft.bailleur_type || null,
-        montant_demande: draft.montant_demande ? Number(draft.montant_demande) : null,
-        periode_debut: draft.periode_debut || null,
-        periode_fin: draft.periode_fin || null,
-        objectif_projet: draft.objectif_projet || null,
-        public_beneficiaire: draft.public_beneficiaire || null,
-        nb_beneficiaires_estime: draft.nb_beneficiaires_estime ? Number(draft.nb_beneficiaires_estime) : null,
-        bilan_subvention_anterieure: draft.bilan_subvention_anterieure ? Number(draft.bilan_subvention_anterieure) : null,
-        bilan_nb_beneficiaires_reel: draft.bilan_nb_beneficiaires_reel ? Number(draft.bilan_nb_beneficiaires_reel) : null,
-        bilan_activites: draft.bilan_activites || null,
-        contact_nom: draft.contact_nom || null,
-        contact_role: draft.contact_role || null,
-        contact_email: draft.contact_email || null,
-        contact_telephone: draft.contact_telephone || null,
-        bailleur_id: draft.bailleur_id || null,
-        demande_precedente_id: draft.demande_precedente_id || null,
-        annee_millesime: draft.annee_millesime ? Number(draft.annee_millesime) : null,
-        plateforme_url_specifique: draft.plateforme_url_specifique || null,
-        plateforme_identifiant_dossier: draft.plateforme_identifiant_dossier || null,
-        budget_previsionnel_json: budgetV2,
-        details_json: detailsJson,
-        type_cerfa_cible: draft.type_cerfa_cible || null,
-      }),
-    });
-    await loadDemande();
-    await loadBrief();
-    await loadBudgetLignes();
-    setSavingDraft(false);
-    setSavedDraft(true);
-    setEditMode(false);
-    setTimeout(() => setSavedDraft(false), 2500);
+    const isValidEmail = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+    try {
+      const res = await fetch(`/api/demandes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titre_projet: draft.titre_projet || null,
+          bailleur_nom: draft.bailleur_nom || null,
+          bailleur_type: draft.bailleur_type || null,
+          montant_demande: draft.montant_demande ? Number(draft.montant_demande) : null,
+          periode_debut: draft.periode_debut || null,
+          periode_fin: draft.periode_fin || null,
+          objectif_projet: draft.objectif_projet || null,
+          public_beneficiaire: draft.public_beneficiaire || null,
+          nb_beneficiaires_estime: draft.nb_beneficiaires_estime ? Math.round(Number(draft.nb_beneficiaires_estime)) : null,
+          bilan_subvention_anterieure: draft.bilan_subvention_anterieure ? Number(draft.bilan_subvention_anterieure) : null,
+          bilan_nb_beneficiaires_reel: draft.bilan_nb_beneficiaires_reel ? Math.round(Number(draft.bilan_nb_beneficiaires_reel)) : null,
+          bilan_activites: draft.bilan_activites || null,
+          contact_nom: draft.contact_nom || null,
+          contact_role: draft.contact_role || null,
+          contact_email: draft.contact_email && isValidEmail(draft.contact_email) ? draft.contact_email : null,
+          contact_telephone: draft.contact_telephone || null,
+          bailleur_id: draft.bailleur_id || null,
+          demande_precedente_id: draft.demande_precedente_id || null,
+          annee_millesime: draft.annee_millesime ? Math.round(Number(draft.annee_millesime)) : null,
+          plateforme_url_specifique: draft.plateforme_url_specifique || null,
+          plateforme_identifiant_dossier: draft.plateforme_identifiant_dossier || null,
+          budget_previsionnel_json: budgetV2,
+          details_json: detailsJson,
+          type_cerfa_cible: draft.type_cerfa_cible || null,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setSaveError(errData.error || `Erreur ${res.status}`);
+        return;
+      }
+      await loadDemande();
+      await loadBrief();
+      await loadBudgetLignes();
+      setSavedDraft(true);
+      setEditMode(false);
+      setTimeout(() => setSavedDraft(false), 2500);
+    } catch {
+      setSaveError('Erreur réseau — réessayez.');
+    } finally {
+      setSavingDraft(false);
+    }
   };
 
   const saveGestion = async () => {
@@ -596,7 +610,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   if (loading) return <AppShell><div className="p-8 text-gray-400">Chargement…</div></AppShell>;
   if (!demande || !draft) return <AppShell><div className="p-8 text-red-500">Demande introuvable</div></AppShell>;
 
-  const pageEditCtx = { editMode, savingDraft, startEdit: () => setEditMode(true), saveAll: saveDossier };
+  const pageEditCtx = { editMode, savingDraft, startEdit: () => setEditMode(true), saveAll: saveDossier, cancelEdit };
 
   const asso = demande.associations;
   const det = (demande.details_json || {}) as DetailsJson;
@@ -1966,6 +1980,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         {/* Sticky save bar — shown when editing */}
         {editMode && (
           <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-2.5">
+            {saveError && <span className="text-xs text-red-500 max-w-xs">{saveError}</span>}
             <span className="text-xs text-gray-500">Mode édition</span>
             <button onClick={cancelEdit} className="btn btn-ghost text-sm">Annuler</button>
             <button onClick={saveDossier} disabled={savingDraft} className="btn btn-primary text-sm">
@@ -1990,9 +2005,12 @@ function SectionCard({ title, children }: { title: string; children: React.React
           <button onClick={ctx.startEdit} className="text-xs text-gray-400 hover:text-blue-600 transition-colors">✏️ Modifier</button>
         )}
         {ctx && ctx.editMode && (
-          <button onClick={ctx.saveAll} disabled={ctx.savingDraft} className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50">
-            {ctx.savingDraft ? 'Enregistrement…' : '💾 Enregistrer'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={ctx.cancelEdit} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Annuler</button>
+            <button onClick={ctx.saveAll} disabled={ctx.savingDraft} className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50">
+              {ctx.savingDraft ? 'Enregistrement…' : '💾 Enregistrer'}
+            </button>
+          </div>
         )}
       </div>
       {children}

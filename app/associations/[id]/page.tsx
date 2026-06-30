@@ -5,6 +5,72 @@ import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
 import type { Association, Demande } from "@/lib/supabase";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+function NouvelleDemandeModal({ associationId, onClose, onCreated }: { associationId: string; onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState({ titre_projet: '', bailleur_nom: '', type_demande: 'premiere' as 'premiere' | 'renouvellement' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/demandes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          association_id: associationId,
+          type_demande: form.type_demande,
+          titre_projet: form.titre_projet.trim() || undefined,
+          bailleur_nom: form.bailleur_nom.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || `Erreur ${res.status}`); return; }
+      onCreated(data.demande.id);
+    } catch {
+      setError('Erreur réseau.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900">Nouvelle demande</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+        </div>
+        {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Titre du projet</label>
+            <input className="field-input w-full" value={form.titre_projet} onChange={e => setForm(f => ({ ...f, titre_projet: e.target.value }))} placeholder="ex : Ateliers numériques 2025" autoFocus />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Bailleur</label>
+            <input className="field-input w-full" value={form.bailleur_nom} onChange={e => setForm(f => ({ ...f, bailleur_nom: e.target.value }))} placeholder="ex : Mairie de Paris" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Type</label>
+            <select className="field-input w-full" value={form.type_demande} onChange={e => setForm(f => ({ ...f, type_demande: e.target.value as 'premiere' | 'renouvellement' }))}>
+              <option value="premiere">Première demande</option>
+              <option value="renouvellement">Renouvellement</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="btn btn-ghost text-sm">Annuler</button>
+          <button onClick={submit} disabled={saving} className="btn btn-primary text-sm">
+            {saving ? 'Création…' : 'Créer la demande'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type AssoDraft = {
   nom: string;
@@ -69,6 +135,7 @@ function FieldInput({ label, value, onChange, type = 'text', placeholder }: {
 
 export default function FicheAssociation({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [asso, setAsso] = useState<Association | null>(null);
   const [demandes, setDemandes] = useState<Demande[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +143,7 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
   const [draft, setDraft] = useState<AssoDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showDemandeModal, setShowDemandeModal] = useState(false);
 
   // Résumé
   const [editingResume, setEditingResume] = useState(false);
@@ -183,6 +251,13 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
   return (
     <AppShell>
       <div className="p-6 max-w-5xl mx-auto space-y-6">
+        {showDemandeModal && (
+          <NouvelleDemandeModal
+            associationId={id}
+            onClose={() => setShowDemandeModal(false)}
+            onCreated={(newId) => { setShowDemandeModal(false); router.push(`/demandes/${newId}`); }}
+          />
+        )}
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -368,14 +443,17 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
 
         {/* Historique */}
         <div className="card">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">
-            Historique des demandes
-            {totalDemande > 0 && (
-              <span className="ml-2 text-xs text-gray-400 font-normal">
-                {totalDemande.toLocaleString('fr-FR')} € demandés · {totalObtenu.toLocaleString('fr-FR')} € obtenus
-              </span>
-            )}
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-700">
+              Historique des demandes
+              {totalDemande > 0 && (
+                <span className="ml-2 text-xs text-gray-400 font-normal">
+                  {totalDemande.toLocaleString('fr-FR')} € demandés · {totalObtenu.toLocaleString('fr-FR')} € obtenus
+                </span>
+              )}
+            </h2>
+            <button onClick={() => setShowDemandeModal(true)} className="btn btn-primary text-xs">+ Nouvelle demande</button>
+          </div>
           <div className="divide-y divide-gray-50">
             {demandes.length === 0 && <p className="text-sm text-gray-400 py-4">Aucune demande pour cette association</p>}
             {demandes.map(d => (

@@ -3,11 +3,82 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import type { Association } from "@/lib/supabase";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+type NewAssoForm = { nom: string; contact_nom: string; contact_email: string; ville: string };
+
+function NouvelleAssoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState<NewAssoForm>({ nom: '', contact_nom: '', contact_email: '', ville: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    if (!form.nom.trim()) { setError('Le nom est requis.'); return; }
+    if (!form.contact_nom.trim()) { setError('Le contact est requis.'); return; }
+    if (!form.contact_email.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.contact_email)) {
+      setError('Email de contact invalide.'); return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/associations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nom: form.nom.trim(), contact_nom: form.contact_nom.trim(), contact_email: form.contact_email.trim(), ville: form.ville.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || `Erreur ${res.status}`); return; }
+      onCreated(data.association.id);
+    } catch {
+      setError('Erreur réseau.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900">Nouvelle association</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+        </div>
+        {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Nom de l'association *</label>
+            <input className="field-input w-full" value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} placeholder="ex : Association Jeunes Talents" autoFocus />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Nom du contact *</label>
+            <input className="field-input w-full" value={form.contact_nom} onChange={e => setForm(f => ({ ...f, contact_nom: e.target.value }))} placeholder="Prénom Nom" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Email du contact *</label>
+            <input className="field-input w-full" type="email" value={form.contact_email} onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} placeholder="contact@asso.fr" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Ville</label>
+            <input className="field-input w-full" value={form.ville} onChange={e => setForm(f => ({ ...f, ville: e.target.value }))} placeholder="Paris" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="btn btn-ghost text-sm">Annuler</button>
+          <button onClick={submit} disabled={saving} className="btn btn-primary text-sm">
+            {saving ? 'Création…' : 'Créer l\'association'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AssociationsPage() {
+  const router = useRouter();
   const [associations, setAssociations] = useState<Association[]>([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
 
   const load = async (search: string) => {
     setLoading(true);
@@ -22,7 +93,16 @@ export default function AssociationsPage() {
   return (
     <AppShell>
       <div className="p-6 max-w-5xl mx-auto space-y-6">
-        <h1 className="text-xl font-bold text-gray-900">Associations</h1>
+        {showModal && (
+          <NouvelleAssoModal
+            onClose={() => setShowModal(false)}
+            onCreated={(id) => { setShowModal(false); router.push(`/associations/${id}`); }}
+          />
+        )}
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-900">Associations</h1>
+          <button onClick={() => setShowModal(true)} className="btn btn-primary text-sm">+ Nouvelle association</button>
+        </div>
 
         <div className="card flex gap-3">
           <input
