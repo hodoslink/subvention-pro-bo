@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo, use, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, use, useRef, useCallback, createContext, useContext } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
@@ -11,16 +11,6 @@ import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree, det
 import Link from "next/link";
 
 type FullDemande = Demande & { associations: Association };
-
-type EnrichResult = {
-  points_forts: string[];
-  points_attention: string[];
-  suggestion_objectif: string;
-  suggestion_public: string;
-  contexte_territorial: string;
-  elements_manquants: string[];
-  conseil_montant: string;
-};
 
 type BudgetRow = { label: string; montant: string };
 type PrestataireDraft = { nom_type: string; nb_seances_ou_ateliers: string; tarif_unitaire: string };
@@ -232,6 +222,13 @@ function draftFromDemande(d: FullDemande): FullDraft {
   };
 }
 
+const PageEditCtx = createContext<{
+  editMode: boolean;
+  savingDraft: boolean;
+  startEdit: () => void;
+  saveAll: () => void;
+} | null>(null);
+
 export default function FicheDemande({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [demande, setDemande] = useState<FullDemande | null>(null);
@@ -257,12 +254,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const chargesCardRef = useRef<HTMLDivElement>(null);
   const prestataireCardRef = useRef<HTMLDivElement>(null);
 
-  const [enrichLoading, setEnrichLoading] = useState(false);
-  const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
-  const [lettreLoading, setLettreLoading] = useState(false);
-  const [lettre, setLettre] = useState('');
-  const [lettreStyle, setLettreStyle] = useState<'formel' | 'accessible'>('formel');
-  const [activeTab, setActiveTab] = useState<'dossier' | 'ia' | 'lettre'>('dossier');
   const [subTab, setSubTab] = useState<'projet' | 'moyens' | 'budget' | 'relations' | 'documents'>('projet');
   const [reprenantN1, setReprenantN1] = useState(false);
   const [thematiqueSuggestions, setThematiqueSuggestions] = useState<string[]>([]);
@@ -583,22 +574,6 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const enrich = async () => {
-    setEnrichLoading(true);
-    setActiveTab('ia');
-    const r = await fetch('/api/ai/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demande_id: id }) });
-    setEnrichResult((await r.json()).analyse || null);
-    setEnrichLoading(false);
-  };
-
-  const genLettre = async () => {
-    setLettreLoading(true);
-    setActiveTab('lettre');
-    const r = await fetch('/api/ai/redige', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demande_id: id, style: lettreStyle }) });
-    setLettre((await r.json()).texte || '');
-    setLettreLoading(false);
-  };
-
   // Score de complétude (basé sur les données sauvegardées)
   const score = useMemo(() => {
     if (!demande) return { filled: 0, total: 9, checks: [] as { label: string; ok: boolean }[] };
@@ -620,6 +595,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 
   if (loading) return <AppShell><div className="p-8 text-gray-400">Chargement…</div></AppShell>;
   if (!demande || !draft) return <AppShell><div className="p-8 text-red-500">Demande introuvable</div></AppShell>;
+
+  const pageEditCtx = { editMode, savingDraft, startEdit: () => setEditMode(true), saveAll: saveDossier };
 
   const asso = demande.associations;
   const det = (demande.details_json || {}) as DetailsJson;
@@ -651,39 +628,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
           <StatutBadge statut={demande.statut} />
         </div>
 
-        {/* Onglets */}
-        <div className="flex gap-1 border-b border-gray-200">
-          {([['dossier', '📋 Dossier'], ['ia', '🤖 Analyse IA'], ['lettre', '✉️ Lettre']] as const).map(([tab, label]) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={['px-4 py-2 text-sm font-medium border-b-2 transition-colors', activeTab === tab ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'].join(' ')}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Dossier ─────────────────────────────────────────────── */}
-        {activeTab === 'dossier' && (
-          <div className="space-y-6">
-
-          {/* Sous-onglets dossier (E1) */}
-          <div className="flex gap-1 overflow-x-auto pb-1">
-            {([
-              ['projet', 'Projet'],
-              ['moyens', 'Moyens'],
-              ['budget', 'Budget'],
-              ['relations', 'Relations admin'],
-              ['documents', 'Documents'],
-            ] as const).map(([t, l]) => (
-              <button
-                key={t}
-                onClick={() => setSubTab(t)}
-                className={['px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors', subTab === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'].join(' ')}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-
-          {/* Brief de mission */}
+        {/* Brief de mission */}
           <div className="rounded-xl border border-blue-100 bg-blue-50/60">
             <button
               onClick={() => setBriefOpen(o => !o)}
@@ -881,27 +826,32 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
             )}
           </div>
 
+          {/* Sous-onglets dossier */}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {([
+              ['projet', 'Projet'],
+              ['moyens', 'Moyens'],
+              ['budget', 'Budget'],
+              ['relations', 'Relations admin'],
+              ['documents', 'Documents'],
+            ] as const).map(([t, l]) => (
+              <button
+                key={t}
+                onClick={() => setSubTab(t)}
+                className={['px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors border', subTab === t ? 'bg-white border-blue-300 shadow-sm text-blue-700 font-semibold' : 'bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:border-gray-200'].join(' ')}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <PageEditCtx.Provider value={pageEditCtx}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
             {/* Colonne gauche */}
             <div className="lg:col-span-2 space-y-5">
 
-            {/* Barre d'action */}
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-400">
-                  {editMode ? 'Mode édition — cliquez sur Enregistrer pour sauvegarder' : savedDraft ? '✓ Dossier enregistré' : ''}
-                </p>
-                {!editMode ? (
-                  <button onClick={() => setEditMode(true)} className="btn btn-secondary text-sm">✏️ Modifier le dossier</button>
-                ) : (
-                  <div className="flex gap-2">
-                    <button onClick={cancelEdit} className="btn btn-ghost text-sm">Annuler</button>
-                    <button onClick={saveDossier} disabled={savingDraft} className="btn btn-primary text-sm">
-                      {savingDraft ? 'Enregistrement…' : '💾 Enregistrer tout'}
-                    </button>
-                  </div>
-                )}
-              </div>
+            {savedDraft && <p className="text-xs text-green-600">✓ Dossier enregistré</p>}
 
             {/* ── Sous-onglet PROJET ─────────────────────────── */}
             {subTab === 'projet' && (<>
@@ -1181,11 +1131,28 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       </div>
                     </div>
                     {/* Coût salarial — déclenche ligne auto 64 */}
-                    {Number(draft.nb_salaries) > 0 && (
-                      <Field label="Coût salarial annuel estimé (€) — charges patronales incluses">
-                        <input type="number" className="field-input" value={draft.cout_salarial_annuel_estime} onChange={e => setField('cout_salarial_annuel_estime', e.target.value)} placeholder="Ex : 24 000" min={0} />
-                      </Field>
-                    )}
+                    <Field label="Coût salarial annuel estimé (€) — charges patronales incluses">
+                      <input type="number" className="field-input" value={draft.cout_salarial_annuel_estime} onChange={e => setField('cout_salarial_annuel_estime', e.target.value)} placeholder="Ex : 24 000" min={0} />
+                    </Field>
+                    {/* Live total */}
+                    {(() => {
+                      const coutBen = (parseFloat(draft.heures_benevolat_semaine || '0') * parseFloat(draft.taux_horaire_valorisation || String(SMIC_HORAIRE_BRUT_DEFAUT)) * 52);
+                      const coutSal = parseFloat(draft.cout_salarial_annuel_estime || '0');
+                      const total = coutBen + coutSal;
+                      if (total <= 0) return null;
+                      return (
+                        <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 flex justify-between items-center">
+                          <div className="text-xs text-indigo-600 space-y-0.5">
+                            {coutBen > 0 && <p>Valorisation bénévolat : {coutBen.toLocaleString('fr-FR')} €/an</p>}
+                            {coutSal > 0 && <p>Charges salariales : {coutSal.toLocaleString('fr-FR')} €/an</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-indigo-500">Total coût humain</p>
+                            <p className="text-base font-bold text-indigo-800 tabular-nums">{total.toLocaleString('fr-FR')} €</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <Field label="Description des moyens mobilisés">
                       <textarea rows={3} className="field-textarea" value={draft.moyens_description} onChange={e => setField('moyens_description', e.target.value)} placeholder={"Ex : 1 coordinatrice salariée à 0,6 ETP + 1 formatrice salariée à 0,8 ETP + 12 bénévoles dont 4 mentors actifs chaque semaine. Locaux mis à disposition gratuitement par la MJC."} />
                     </Field>
@@ -1206,12 +1173,30 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <strong className={det.nb_salaries ? 'text-gray-900' : 'text-gray-300 font-normal italic'}>{det.nb_salaries || '—'}</strong>
                       </span>
                     </div>
-                    {(det.heures_benevolat_semaine || det.taux_horaire_valorisation) && (
-                      <p className="text-xs text-gray-500">
-                        Valorisation : {det.heures_benevolat_semaine || '?'} h/sem × {det.taux_horaire_valorisation || SMIC_HORAIRE_BRUT_DEFAUT} €/h
-                      </p>
-                    )}
-                    <RowF label="Coût salarial estimé" value={det.cout_salarial_annuel_estime ? `${parseFloat(det.cout_salarial_annuel_estime).toLocaleString('fr-FR')} €/an` : null} />
+                    {(() => {
+                      const coutBen = det.heures_benevolat_semaine
+                        ? parseFloat(det.heures_benevolat_semaine) * parseFloat(det.taux_horaire_valorisation || String(SMIC_HORAIRE_BRUT_DEFAUT)) * 52
+                        : 0;
+                      const coutSal = det.cout_salarial_annuel_estime ? parseFloat(det.cout_salarial_annuel_estime) : 0;
+                      const total = coutBen + coutSal;
+                      return (
+                        <>
+                          {(det.heures_benevolat_semaine || det.taux_horaire_valorisation) && (
+                            <p className="text-xs text-gray-500">
+                              Valorisation : {det.heures_benevolat_semaine || '?'} h/sem × {det.taux_horaire_valorisation || SMIC_HORAIRE_BRUT_DEFAUT} €/h
+                              {coutBen > 0 && <span className="ml-1 font-medium">= {coutBen.toLocaleString('fr-FR')} €/an</span>}
+                            </p>
+                          )}
+                          <RowF label="Coût salarial estimé" value={coutSal > 0 ? `${coutSal.toLocaleString('fr-FR')} €/an` : null} />
+                          {total > 0 && (
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 flex justify-between items-center">
+                              <span className="text-xs font-semibold text-indigo-700">Total coût humain estimé</span>
+                              <span className="text-sm font-bold text-indigo-800 tabular-nums">{total.toLocaleString('fr-FR')} €/an</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                     <TextBlockF label="Description" text={det.moyens_description} />
                   </div>
                 )}
@@ -1457,11 +1442,34 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
               {/* Budget */}
               <SectionCard title="Budget prévisionnel">
                 {editMode ? (
-                  <BudgetEditor
-                    depenses={draft.depenses}
-                    recettes={draft.recettes}
-                    onChange={(dep, rec) => setDraft(prev => prev ? { ...prev, depenses: dep, recettes: rec } : prev)}
-                  />
+                  <>
+                    {/* Read-only summary of saved values to compare while editing */}
+                    {budgetLignes.length > 0 && (
+                      <details className="mb-4">
+                        <summary className="text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                          Valeurs enregistrées (référence)
+                        </summary>
+                        <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                          <BudgetLignesView lignes={budgetLignes} demandeId={id} />
+                        </div>
+                      </details>
+                    )}
+                    {budgetLignes.length === 0 && (viewDep.some(r => r.label) || viewRec.some(r => r.label)) && (
+                      <details className="mb-4">
+                        <summary className="text-xs font-medium text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                          Valeurs enregistrées (référence)
+                        </summary>
+                        <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                          <BudgetView depenses={viewDep} recettes={viewRec} totalDep={totalDep} totalRec={totalRec} />
+                        </div>
+                      </details>
+                    )}
+                    <BudgetEditor
+                      depenses={draft.depenses}
+                      recettes={draft.recettes}
+                      onChange={(dep, rec) => setDraft(prev => prev ? { ...prev, depenses: dep, recettes: rec } : prev)}
+                    />
+                  </>
                 ) : budgetLignes.length > 0 ? (
                   <>
                     <BudgetLignesView lignes={budgetLignes} demandeId={id} />
@@ -1951,77 +1959,18 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 </div>
               </div>
 
-              {/* IA */}
-              <div className="card space-y-3">
-                <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">Assistance IA</h2>
-                <p className="text-xs text-gray-500">Analyse points forts / faibles et suggestions de rédaction.</p>
-                <button onClick={enrich} disabled={enrichLoading} className="btn btn-secondary w-full justify-center">
-                  {enrichLoading ? '⏳ Analyse en cours…' : '🔍 Analyser le dossier'}
-                </button>
-                <div className="flex gap-2">
-                  <select className="field-input text-xs" value={lettreStyle} onChange={e => setLettreStyle(e.target.value as 'formel' | 'accessible')}>
-                    <option value="formel">Style formel</option>
-                    <option value="accessible">Style accessible</option>
-                  </select>
-                  <button onClick={genLettre} disabled={lettreLoading} className="btn btn-secondary shrink-0">
-                    {lettreLoading ? '⏳' : '✉️ Lettre'}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
-          </div>
-        )}
+          </PageEditCtx.Provider>
 
-        {/* ── IA ──────────────────────────────────────────────────── */}
-        {activeTab === 'ia' && (
-          <div className="space-y-5">
-            {enrichLoading && <div className="card text-center py-12 text-gray-400">⏳ Analyse en cours…</div>}
-            {!enrichLoading && !enrichResult && (
-              <div className="card text-center py-12 text-gray-400">
-                <p className="mb-3">Aucune analyse pour l'instant.</p>
-                <button onClick={enrich} className="btn btn-primary">🔍 Lancer l'analyse</button>
-              </div>
-            )}
-            {enrichResult && (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <SectionCard title="✅ Points forts">
-                    <ul className="space-y-1.5">{enrichResult.points_forts.map((p, i) => <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-green-500 shrink-0">•</span>{p}</li>)}</ul>
-                  </SectionCard>
-                  <SectionCard title="⚠️ Points d'attention">
-                    <ul className="space-y-1.5">{enrichResult.points_attention.map((p, i) => <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-amber-500 shrink-0">•</span>{p}</li>)}</ul>
-                  </SectionCard>
-                </div>
-                <SectionCard title="📝 Suggestion d'objectif"><p className="text-sm text-gray-800 leading-relaxed">{enrichResult.suggestion_objectif}</p></SectionCard>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <SectionCard title="👥 Public affiné"><p className="text-sm text-gray-800">{enrichResult.suggestion_public}</p></SectionCard>
-                  <SectionCard title="🗺 Contexte territorial"><p className="text-sm text-gray-800">{enrichResult.contexte_territorial}</p></SectionCard>
-                </div>
-                <SectionCard title="📋 Éléments manquants">
-                  <ul className="space-y-1">{enrichResult.elements_manquants.map((e, i) => <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-red-400 shrink-0">□</span>{e}</li>)}</ul>
-                </SectionCard>
-                <SectionCard title="💶 Conseil montant"><p className="text-sm text-gray-800">{enrichResult.conseil_montant}</p></SectionCard>
-                <div className="flex justify-end"><button onClick={enrich} className="btn btn-ghost text-xs">↺ Relancer l'analyse</button></div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── Lettre ──────────────────────────────────────────────── */}
-        {activeTab === 'lettre' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <select className="field-input w-auto" value={lettreStyle} onChange={e => setLettreStyle(e.target.value as 'formel' | 'accessible')}>
-                <option value="formel">Style formel</option>
-                <option value="accessible">Style accessible</option>
-              </select>
-              <button onClick={genLettre} disabled={lettreLoading} className="btn btn-primary">{lettreLoading ? '⏳ Génération…' : '✉️ Générer'}</button>
-              {lettre && <button onClick={() => navigator.clipboard.writeText(lettre)} className="btn btn-secondary">📋 Copier</button>}
-            </div>
-            {lettreLoading && <div className="card text-center py-12 text-gray-400">⏳ Rédaction en cours…</div>}
-            {!lettreLoading && !lettre && <div className="card text-center py-12 text-gray-400">Cliquez sur « Générer » pour créer un brouillon.</div>}
-            {lettre && <div className="card"><pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans leading-relaxed">{lettre}</pre></div>}
+        {/* Sticky save bar — shown when editing */}
+        {editMode && (
+          <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-2.5">
+            <span className="text-xs text-gray-500">Mode édition</span>
+            <button onClick={cancelEdit} className="btn btn-ghost text-sm">Annuler</button>
+            <button onClick={saveDossier} disabled={savingDraft} className="btn btn-primary text-sm">
+              {savingDraft ? 'Enregistrement…' : '💾 Enregistrer'}
+            </button>
           </div>
         )}
       </div>
@@ -2032,9 +1981,20 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 /* ── Sous-composants ─────────────────────────────────────────────── */
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  const ctx = useContext(PageEditCtx);
   return (
     <div className="card space-y-4">
-      <h2 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">{title}</h2>
+      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+        <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
+        {ctx && !ctx.editMode && (
+          <button onClick={ctx.startEdit} className="text-xs text-gray-400 hover:text-blue-600 transition-colors">✏️ Modifier</button>
+        )}
+        {ctx && ctx.editMode && (
+          <button onClick={ctx.saveAll} disabled={ctx.savingDraft} className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50">
+            {ctx.savingDraft ? 'Enregistrement…' : '💾 Enregistrer'}
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );
