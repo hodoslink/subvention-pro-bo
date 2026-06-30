@@ -63,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Génère le magic link via l'API admin Supabase
   // On utilise l'origine de la requête pour supporter prod et previews Vercel
   const origin = new URL(req.url).origin;
-  const redirectTo = `${origin}/api/auth/callback?next=/formulaire/${id}`;
+  const redirectTo = `${origin}/auth/callback?next=/formulaire/${id}`;
   const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
     type: 'magiclink',
     email,
