@@ -9,6 +9,12 @@ interface Props {
   token: string;
   associationNom: string;
   dateLimiteDepot: string | null;
+  titreProjet: string | null;
+  bailleurNom: string | null;
+  montantDemande: number | null;
+  periodeDebut: string | null;
+  periodeFin: string | null;
+  objectifProjet: string | null;
   initialDetails: Details;
 }
 
@@ -26,6 +32,12 @@ export default function FormulairePublicClient({
   token,
   associationNom,
   dateLimiteDepot,
+  titreProjet,
+  bailleurNom,
+  montantDemande,
+  periodeDebut,
+  periodeFin,
+  objectifProjet,
   initialDetails,
 }: Props) {
   const [details, setDetails] = useState<Details>(initialDetails);
@@ -71,24 +83,63 @@ export default function FormulairePublicClient({
   const autresBailleurs: Array<{ nom_bailleur?: string; montant?: string; statut?: string }> =
     Array.isArray(details.autres_bailleurs_sollicites) ? (details.autres_bailleurs_sollicites as typeof autresBailleurs) : [];
 
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const fmtMontant = (n: number) =>
+    new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-10 space-y-8">
       {/* Header */}
-      <div className="space-y-2">
-        <p className="text-sm text-gray-500 uppercase tracking-wide font-medium">Formulaire de renseignements</p>
-        <h1 className="text-2xl font-bold text-gray-900">{associationNom || 'Votre association'}</h1>
-        <p className="text-gray-600 text-sm">
-          Ces informations permettront à votre conseiller de constituer votre dossier de demande de subvention.
-          Vous pouvez enregistrer plusieurs fois.
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-1">Formulaire de renseignements</p>
+          <h1 className="text-2xl font-bold text-gray-900">{associationNom || 'Votre association'}</h1>
+        </div>
+
+        {/* Carte de contexte du projet */}
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+          <p className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Votre dossier en cours</p>
+          {titreProjet && (
+            <p className="text-base font-semibold text-blue-900 leading-snug">{titreProjet}</p>
+          )}
+          <div className="flex flex-wrap gap-3">
+            {bailleurNom && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-blue-800 bg-white border border-blue-200 rounded-full px-3 py-0.5">
+                <span className="text-blue-400">🏛</span> {bailleurNom}
+              </span>
+            )}
+            {montantDemande != null && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-blue-800 bg-white border border-blue-200 rounded-full px-3 py-0.5">
+                <span className="text-blue-400">💶</span> {fmtMontant(montantDemande)} demandés
+              </span>
+            )}
+            {(periodeDebut || periodeFin) && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-blue-800 bg-white border border-blue-200 rounded-full px-3 py-0.5">
+                <span className="text-blue-400">📆</span>{' '}
+                {periodeDebut && periodeFin
+                  ? `${periodeDebut} → ${periodeFin}`
+                  : periodeDebut ?? periodeFin}
+              </span>
+            )}
+          </div>
+          {objectifProjet && (
+            <p className="text-sm text-blue-800 leading-relaxed border-t border-blue-100 pt-3">{objectifProjet}</p>
+          )}
+        </div>
+
+        <p className="text-gray-500 text-sm">
+          Complétez ce formulaire pour permettre à votre conseiller de finaliser votre dossier.
+          Vous pouvez enregistrer plusieurs fois — vos réponses sont conservées à chaque envoi.
         </p>
+
         {dateLimiteDepot && (
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-            <span className="text-amber-600 mt-0.5">📅</span>
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+            <span className="text-amber-500 mt-0.5">📅</span>
             <div>
               <p className="text-sm font-semibold text-amber-800">Date limite de dépôt du dossier</p>
-              <p className="text-sm text-amber-700">
-                {new Date(dateLimiteDepot).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
+              <p className="text-sm text-amber-700">{fmtDate(dateLimiteDepot)}</p>
             </div>
           </div>
         )}

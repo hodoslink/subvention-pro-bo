@@ -19,7 +19,7 @@ export default async function FormulairePublicPage({
 
   const { data: demande } = await supabase
     .from('demandes')
-    .select('id, token_formulaire_public, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, associations(nom)')
+    .select('id, token_formulaire_public, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom)')
     .eq('id', id)
     .eq('token_formulaire_public', token)
     .single();
@@ -47,6 +47,12 @@ export default async function FormulairePublicPage({
       token={token}
       associationNom={associationNom}
       dateLimiteDepot={demande.date_limite_depot ?? null}
+      titreProjet={demande.titre_projet ?? null}
+      bailleurNom={demande.bailleur_nom ?? null}
+      montantDemande={demande.montant_demande ?? null}
+      periodeDebut={demande.periode_debut ?? null}
+      periodeFin={demande.periode_fin ?? null}
+      objectifProjet={demande.objectif_projet ?? null}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialDetails={(demande.details_json ?? {}) as Record<string, any>}
     />
