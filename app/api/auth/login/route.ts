@@ -13,7 +13,9 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error || !data.session) {
-    return NextResponse.json({ error: 'Identifiants incorrects.' }, { status: 401 });
+    // error.message exposé temporairement pour diagnostic — à retirer en prod
+    const msg = error?.message ?? 'Session nulle';
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
 
   return response;
