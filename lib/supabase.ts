@@ -144,6 +144,15 @@ export type DetailsJson = {
   adherents_personnes_morales?: Array<{ nom: string }>;
 };
 
+export type UserRole = 'admin' | 'consultant';
+
+export type Profile = {
+  id: string;
+  created_at: string;
+  role: UserRole;
+  nom_complet: string;
+};
+
 export type Association = {
   id: string;
   created_at: string;
@@ -220,9 +229,12 @@ export type Demande = {
   formulaire_public_ouvert_le?: string;
   formulaire_public_rempli_le?: string;
   date_limite_depot?: string;
+  // Auth multi-consultants
+  consultant_id?: string;
   // joined
   associations?: Association;
   bailleurs?: Bailleur;
+  consultant?: Profile;
 };
 
 export type JournalEntry = {
@@ -231,6 +243,7 @@ export type JournalEntry = {
   demande_id: string;
   evenement: string;
   detail?: string;
+  user_id?: string;
 };
 
 export type BudgetLigneDB = {
