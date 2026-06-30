@@ -7,6 +7,7 @@ import { SiretSearch } from "@/components/SiretSearch";
 import { FileDrop } from "@/components/FileDrop";
 import { VerifiedInfoCard } from "@/components/VerifiedInfoCard";
 import { StepCard, Field, NavButtons } from "@/components/StepUI";
+import { BAILLEUR_TYPES } from "@/lib/supabase";
 
 const STEPS = [
   { label: "Votre association" },
@@ -62,7 +63,7 @@ const initialState: FormState = {
   forme_juridique: "", nb_membres: "", date_creation: "",
   contact_nom: "", contact_role: "", contact_email: "", contact_telephone: "",
   type_demande: "premiere", bilan_subvention_anterieure: "", bilan_activites: "", bilan_nb_beneficiaires_reel: "",
-  bailleur_type: "ville", bailleur_nom: "", montant_demande: "",
+  bailleur_type: "", bailleur_nom: "", montant_demande: "",
   titre_projet: "", objectif_projet: "", public_beneficiaire: "",
   nb_beneficiaires_estime: "", periode_debut: "", periode_fin: "",
   annee_millesime: String(new Date().getFullYear()),
@@ -474,26 +475,12 @@ export default function NouvelleDemande() {
               )}
             </div>
 
-            <div className="flex gap-3">
-              {[
-                { v: "ville", l: "Ville / mairie" },
-                { v: "departement", l: "Département" },
-              ].map((opt) => (
-                <button
-                  key={opt.v}
-                  type="button"
-                  onClick={() => update({ bailleur_type: opt.v })}
-                  className={[
-                    "flex-1 h-[52px] rounded-[10px] border-[1.5px] font-medium transition-all",
-                    form.bailleur_type === opt.v
-                      ? "border-sapin bg-sapin-soft text-sapin-deep"
-                      : "border-border-soft text-ink-soft hover:border-sapin/40",
-                  ].join(" ")}
-                >
-                  {opt.l}
-                </button>
-              ))}
-            </div>
+            <Field label="Type de bailleur">
+              <select className="field-input" value={form.bailleur_type} onChange={e => update({ bailleur_type: e.target.value })}>
+                <option value="">— Sélectionner —</option>
+                {BAILLEUR_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+              </select>
+            </Field>
             <Field label="Nom de la collectivité visée">
               <input
                 className="field-input"
@@ -676,7 +663,7 @@ export default function NouvelleDemande() {
               <SummaryBlock title="Projet" rows={[
                 ["Nature", form.type_demande === "renouvellement" ? "Renouvellement" : "Première demande"],
                 ["Engagement", form.est_pluriannuel ? `Pluriannuel — ${form.pluriannuel_nb_annees} ans (${Array.from({ length: Number(form.pluriannuel_nb_annees) }, (_, i) => (Number(form.annee_millesime) || new Date().getFullYear()) + i).join(', ')})` : "Annuel"],
-                ["Bailleur", `${form.bailleur_type === "ville" ? "Ville" : "Département"} — ${form.bailleur_nom}`],
+                ["Bailleur", `${BAILLEUR_TYPES.find(t => t.v === form.bailleur_type)?.l ?? form.bailleur_type}${form.bailleur_nom ? ` — ${form.bailleur_nom}` : ''}`],
                 ["Titre", form.titre_projet],
                 ["Description", form.objectif_projet],
                 ["Bénéficiaires", `${form.nb_beneficiaires_estime || "—"} personnes — ${form.public_beneficiaire || "—"}`],

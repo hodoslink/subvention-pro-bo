@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
-import { z } from 'zod';
 import { randomUUID } from 'crypto';
+import { demandeSchema } from '@/lib/validation';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -36,34 +36,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ demandes: data });
 }
 
-const postSchema = z.object({
-  association_id: z.string().uuid(),
-  type_demande: z.enum(['premiere', 'renouvellement']).default('premiere'),
-  bailleur_type: z.string().max(50).optional().nullable(),
-  bailleur_nom: z.string().max(300).optional().nullable(),
-  bailleur_id: z.string().uuid().optional().nullable(),
-  titre_projet: z.string().max(500).optional().nullable(),
-  objectif_projet: z.string().max(5000).optional().nullable(),
-  public_beneficiaire: z.string().max(500).optional().nullable(),
-  nb_beneficiaires_estime: z.number().int().min(0).optional().nullable(),
-  periode_debut: z.string().optional().nullable(),
-  periode_fin: z.string().optional().nullable(),
-  montant_demande: z.number().min(0).optional().nullable(),
-  budget_previsionnel_json: z.any().optional(),
-  bilan_subvention_anterieure: z.number().min(0).optional().nullable(),
-  bilan_activites: z.string().max(5000).optional().nullable(),
-  bilan_nb_beneficiaires_reel: z.number().int().min(0).optional().nullable(),
-  annee_millesime: z.number().int().min(1900).max(2100).optional().nullable(),
-  // Pluriannuel
-  pluriannuel_nb_annees: z.number().int().min(2).max(4).optional().nullable(),
-});
-
 export async function POST(req: NextRequest) {
   let body: unknown;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Corps invalide' }, { status: 400 });
   }
-  const parsed = postSchema.safeParse(body);
+  const parsed = demandeSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 422 });
   }

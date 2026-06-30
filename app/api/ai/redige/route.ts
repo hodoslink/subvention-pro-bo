@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServer } from '@/lib/supabase';
+import { getSupabaseServer, BAILLEUR_TYPES } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic();
@@ -33,7 +33,7 @@ Rédige une lettre de demande de subvention complète et professionnelle pour :
 **Représentant légal :** ${asso.contact_nom} (${asso.contact_role || 'représentant'})
 **Membres :** ${asso.nb_membres ?? 'non renseigné'}
 
-**Bailleur :** ${demande.bailleur_nom} (${demande.bailleur_type === 'ville' ? 'Ville / Mairie' : 'Département'})
+**Bailleur :** ${demande.bailleur_nom} (${BAILLEUR_TYPES.find(t => t.v === demande.bailleur_type)?.l ?? demande.bailleur_type ?? ''})
 **Type de demande :** ${demande.type_demande === 'renouvellement' ? 'Renouvellement' : 'Première demande'}
 
 **Projet : ${demande.titre_projet}**

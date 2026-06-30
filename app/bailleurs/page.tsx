@@ -2,17 +2,9 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import type { Bailleur } from "@/lib/supabase";
+import { BAILLEUR_TYPES } from "@/lib/supabase";
 
-const TYPES = [
-  { v: 'etat', l: 'État' },
-  { v: 'commune', l: 'Commune' },
-  { v: 'epci', l: 'EPCI / intercommunalité' },
-  { v: 'departement', l: 'Département' },
-  { v: 'region', l: 'Région' },
-  { v: 'etablissement_public', l: 'Établissement public' },
-  { v: 'prive', l: 'Privé / fondation' },
-  { v: 'autre', l: 'Autre' },
-];
+const TYPES = BAILLEUR_TYPES;
 
 const PLATEFORME_TYPES = [
   { v: 'plateforme_numerique', l: 'Plateforme numérique' },

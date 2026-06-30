@@ -92,6 +92,8 @@ type FullDraft = {
   qpv_codes: string[];
   // E3 — Type Cerfa cible
   type_cerfa_cible: string;
+  // Formulaire public
+  date_limite_depot: string;
   // C — Relations administratives
   agrements: Array<{ type: string; autorite: string; date_obtention: string }>;
   reconnue_utilite_publique: boolean;
@@ -213,6 +215,7 @@ function draftFromDemande(d: FullDemande): FullDraft {
     contrat_de_ville_nom: det.contrat_de_ville?.nom_contrat || '',
     qpv_codes: det.qpv_codes ?? [],
     type_cerfa_cible: d.type_cerfa_cible || '',
+    date_limite_depot: d.date_limite_depot || '',
     agrements: det.agrements?.map(a => ({ type: a.type || '', autorite: a.autorite || '', date_obtention: a.date_obtention || '' })) ?? [],
     reconnue_utilite_publique: det.reconnue_utilite_publique ?? false,
     date_publication_jo_utilite_publique: det.date_publication_jo_utilite_publique || '',
@@ -266,6 +269,13 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [savingCeQuiChange, setSavingCeQuiChange] = useState(false);
   const [groupeMembers, setGroupeMembers] = useState<Array<{ id: string; titre_projet: string | null; annee_millesime: number | null; statut: string; montant_demande: number | null; montant_obtenu: number | null; numero_annee_dans_groupe: number | null; nombre_annees_total_groupe: number | null }> | null>(null);
   const [aidesSeuil, setAidesSeuil] = useState<{ total: number; depasse_seuil: boolean } | null>(null);
+  const [lienFormulaire, setLienFormulaire] = useState<{
+    url: string | null;
+    token_genere_le: string | null;
+    ouvert_le: string | null;
+    rempli_le: string | null;
+  } | null>(null);
+  const [lienGenerating, setLienGenerating] = useState(false);
 
   const loadDemande = async () => {
     const r = await fetch(`/api/demandes/${id}`);
@@ -318,6 +328,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       .then(r => r.ok ? r.json() : { suggestions: [] })
       .then(({ suggestions: s }) => setThematiqueSuggestions(s || [])), []);
 
+  const loadLienFormulaire = () =>
+    fetch(`/api/demandes/${id}/lien-formulaire`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => data && setLienFormulaire(data));
+
   useEffect(() => {
     loadDemande();
     loadBrief();
@@ -326,6 +341,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     loadBudgetLignes();
     loadGroupe();
     loadThematiqueSuggestions();
+    loadLienFormulaire();
   }, [id]);
 
   const reprendreValeursPrecedentes = async () => {
@@ -535,6 +551,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
           budget_previsionnel_json: budgetV2,
           details_json: detailsJson,
           type_cerfa_cible: draft.type_cerfa_cible || null,
+          date_limite_depot: draft.date_limite_depot || null,
         }),
       });
       if (!res.ok) {
@@ -940,6 +957,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <input className="field-input" value={draft.periode_fin} onChange={e => setField('periode_fin', e.target.value)} placeholder="déc. 2025" />
                       </Field>
                     </div>
+                    <Field label="Date limite de dépôt">
+                      <input type="date" className="field-input w-48" value={draft.date_limite_depot} onChange={e => setField('date_limite_depot', e.target.value)} />
+                      <p className="text-xs text-gray-400 mt-1">Date fixée par le bailleur — affichée dans le formulaire public</p>
+                    </Field>
                     <Field label="Thématique">
                       <input
                         className="field-input"
@@ -1001,6 +1022,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     <RowF label="Millésime" value={demande.annee_millesime?.toString() ?? null} />
                     <RowF label="Réf. plateforme" value={demande.plateforme_identifiant_dossier ?? null} />
                     <RowF label="Période" value={`${demande.periode_debut || '—'} → ${demande.periode_fin || '—'}`} />
+                    {demande.date_limite_depot && (
+                      <RowF label="Date limite de dépôt" value={new Date(demande.date_limite_depot).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} />
+                    )}
                     <RowF label="Montant demandé" value={demande.montant_demande ? `${fmt(demande.montant_demande)} €` : null} />
                     <RowF label="Thématique" value={det.thematique ?? null} />
                     {demande.objectif_projet
@@ -1768,6 +1792,67 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     </div>
                   );
                 })()}
+              </SectionCard>
+
+              {/* Formulaire public association */}
+              <SectionCard title="Formulaire association">
+                <div className="space-y-4">
+                  {lienFormulaire?.rempli_le && (
+                    <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                      <span>✅</span>
+                      <span>Réponses reçues le {new Date(lienFormulaire.rempli_le).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                  )}
+                  {lienFormulaire?.ouvert_le && !lienFormulaire.rempli_le && (
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                      <span>👁</span>
+                      <span>Formulaire ouvert le {new Date(lienFormulaire.ouvert_le).toLocaleDateString('fr-FR')} — aucune réponse enregistrée</span>
+                    </div>
+                  )}
+                  {lienFormulaire?.url ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-500">Lien à envoyer à l'association :</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={lienFormulaire.url}
+                          className="field-input text-xs flex-1 bg-gray-50"
+                          onClick={e => (e.target as HTMLInputElement).select()}
+                        />
+                        <button
+                          className="btn btn-ghost text-xs shrink-0"
+                          onClick={() => navigator.clipboard.writeText(lienFormulaire.url ?? '')}
+                        >
+                          Copier
+                        </button>
+                      </div>
+                      {lienFormulaire.token_genere_le && (
+                        <p className="text-xs text-gray-400">Généré le {new Date(lienFormulaire.token_genere_le).toLocaleDateString('fr-FR')}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Aucun lien généré pour l'instant.</p>
+                  )}
+                  <button
+                    className="btn btn-primary text-sm"
+                    disabled={lienGenerating}
+                    onClick={async () => {
+                      setLienGenerating(true);
+                      try {
+                        const res = await fetch(`/api/demandes/${id}/lien-formulaire`, { method: 'POST' });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setLienFormulaire(prev => ({ ...prev, url: data.url, token_genere_le: data.token_genere_le, ouvert_le: prev?.ouvert_le ?? null, rempli_le: prev?.rempli_le ?? null }));
+                        }
+                      } finally {
+                        setLienGenerating(false);
+                      }
+                    }}
+                  >
+                    {lienGenerating ? 'Génération…' : lienFormulaire?.url ? '🔄 Régénérer le lien' : '🔗 Générer le lien'}
+                  </button>
+                  <p className="text-xs text-gray-400">Régénérer invalide l'ancien lien immédiatement.</p>
+                </div>
               </SectionCard>
 
               {/* Relations administratives (C) */}

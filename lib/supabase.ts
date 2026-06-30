@@ -214,6 +214,12 @@ export type Demande = {
   nombre_annees_total_groupe?: number;
   // Type de dossier cible (E3)
   type_cerfa_cible?: string;
+  // Formulaire public association
+  token_formulaire_public?: string;
+  token_formulaire_genere_le?: string;
+  formulaire_public_ouvert_le?: string;
+  formulaire_public_rempli_le?: string;
+  date_limite_depot?: string;
   // joined
   associations?: Association;
   bailleurs?: Bailleur;
