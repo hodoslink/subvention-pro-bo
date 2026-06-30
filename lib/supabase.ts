@@ -12,7 +12,18 @@ export type Statut =
 
 export type TypeDemande = 'premiere' | 'renouvellement';
 
-export type BaillleurType = 'ville' | 'departement';
+export type BailleurType = 'etat' | 'commune' | 'epci' | 'departement' | 'region' | 'etablissement_public' | 'prive' | 'autre';
+
+export const BAILLEUR_TYPES: { v: BailleurType; l: string }[] = [
+  { v: 'etat', l: 'État' },
+  { v: 'commune', l: 'Commune' },
+  { v: 'epci', l: 'EPCI / intercommunalité' },
+  { v: 'departement', l: 'Département' },
+  { v: 'region', l: 'Région' },
+  { v: 'etablissement_public', l: 'Établissement public' },
+  { v: 'prive', l: 'Privé / fondation' },
+  { v: 'autre', l: 'Autre' },
+];
 
 export type Bailleur = {
   id: string;
@@ -65,6 +76,8 @@ export type BudgetV2 = {
   recettes: { label: string; montant: string }[];
 };
 
+export type AutoritesDestinataires = 'etat' | 'region' | 'departement' | 'commune_epci' | 'etablissement_public' | 'autre';
+
 export type DetailsJson = {
   // Champs déclaratifs Cerfa (sans génération budgétaire)
   forme_subvention?: 'numeraire' | 'nature';
@@ -79,12 +92,19 @@ export type DetailsJson = {
   beneficiaires_age?: string;
   beneficiaires_sexe?: string;
   localisation_qpv?: string;
+  qpv_codes?: string[];
+  // Autorités destinataires (page de garde Cerfa — cumulables)
+  autorites_destinataires?: AutoritesDestinataires[];
+  contrat_de_ville?: { concerne: boolean; nom_contrat?: string };
   // Moyens humains
   nb_benevoles?: string;
   etpt_benevoles?: string;
   heures_benevolat_semaine?: string;
   taux_horaire_valorisation?: string;   // défaut SMIC horaire brut — voir lib/budgetAuto.ts
   nb_salaries?: string;
+  nb_volontaires?: string;
+  nb_emplois_aides?: string;
+  personnel_mis_a_disposition_autorite_publique?: string;
   cout_salarial_annuel_estime?: string;
   moyens_description?: string;
   // Prestataires
@@ -115,12 +135,20 @@ export type DetailsJson = {
   tarif_moyen_annuel?: string;
   // Autres bailleurs sollicités sur ce projet
   autres_bailleurs_sollicites?: Array<{ nom_bailleur: string; montant: string; statut: 'obtenu' | 'demande' | 'envisage' }>;
+  // Relations administratives (Partie C)
+  agrements?: Array<{ type: string; autorite: string; date_obtention?: string }>;
+  reconnue_utilite_publique?: boolean;
+  date_publication_jo_utilite_publique?: string;
+  assujettie_impots_commerciaux?: boolean;
+  reseaux_affiliation?: string[];
+  adherents_personnes_morales?: Array<{ nom: string }>;
 };
 
 export type Association = {
   id: string;
   created_at: string;
   nom: string;
+  sigle?: string;
   siret?: string;
   siren?: string;
   rna?: string;
@@ -184,6 +212,8 @@ export type Demande = {
   groupe_pluriannuel_id?: string;
   numero_annee_dans_groupe?: number;
   nombre_annees_total_groupe?: number;
+  // Type de dossier cible (E3)
+  type_cerfa_cible?: string;
   // joined
   associations?: Association;
   bailleurs?: Bailleur;

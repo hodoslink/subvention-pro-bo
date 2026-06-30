@@ -1,10 +1,12 @@
 "use client";
-import { useEffect, useState, useMemo, use, useRef } from "react";
+import { useEffect, useState, useMemo, use, useRef, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
 import { DocumentList } from "@/components/DocumentList";
+import { PlanFinancement } from "@/components/PlanFinancement";
 import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
-import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB, BudgetEquilibre, TauxFinancement } from "@/lib/supabase";
+import type { Demande, Association, Statut, BudgetLigne, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB, BudgetEquilibre, TauxFinancement, BailleurType, AutoritesDestinataires } from "@/lib/supabase";
+import { BAILLEUR_TYPES } from "@/lib/supabase";
 import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree, detecterPatternsInactifs, calculerEcartAEquilibrer } from "@/lib/budgetAuto";
 import Link from "next/link";
 
@@ -28,7 +30,7 @@ type AutreBailleurDraft = { nom_bailleur: string; montant: string; statut: 'obte
 type FullDraft = {
   titre_projet: string;
   bailleur_nom: string;
-  bailleur_type: 'ville' | 'departement' | '';
+  bailleur_type: BailleurType | '';
   montant_demande: string;
   periode_debut: string;
   periode_fin: string;
@@ -92,6 +94,21 @@ type FullDraft = {
   objet_demande: 'fonctionnement_global' | 'projet_action' | '';
   recrutement_envisage: boolean;
   recrutement_etpt: string;
+  // B3 — Autorités destinataires
+  autorites_destinataires: AutoritesDestinataires[];
+  contrat_de_ville_concerne: boolean;
+  contrat_de_ville_nom: string;
+  // D1 — QPV codes
+  qpv_codes: string[];
+  // E3 — Type Cerfa cible
+  type_cerfa_cible: string;
+  // C — Relations administratives
+  agrements: Array<{ type: string; autorite: string; date_obtention: string }>;
+  reconnue_utilite_publique: boolean;
+  date_publication_jo_utilite_publique: string;
+  assujettie_impots_commerciaux: boolean;
+  reseaux_affiliation: string;
+  adherents_personnes_morales: string;
 };
 
 const DEP_CATS = [
@@ -141,7 +158,7 @@ function draftFromDemande(d: FullDemande): FullDraft {
   return {
     titre_projet: d.titre_projet || '',
     bailleur_nom: d.bailleur_nom || '',
-    bailleur_type: (d.bailleur_type as 'ville' | 'departement') || '',
+    bailleur_type: (d.bailleur_type as BailleurType) || '',
     montant_demande: d.montant_demande?.toString() || '',
     periode_debut: d.periode_debut || '',
     periode_fin: d.periode_fin || '',
@@ -201,6 +218,17 @@ function draftFromDemande(d: FullDemande): FullDraft {
     objet_demande: (det.objet_demande as FullDraft['objet_demande']) || '',
     recrutement_envisage: det.recrutement_envisage ?? false,
     recrutement_etpt: det.recrutement_etpt || '',
+    autorites_destinataires: (det.autorites_destinataires ?? []) as AutoritesDestinataires[],
+    contrat_de_ville_concerne: det.contrat_de_ville?.concerne ?? false,
+    contrat_de_ville_nom: det.contrat_de_ville?.nom_contrat || '',
+    qpv_codes: det.qpv_codes ?? [],
+    type_cerfa_cible: d.type_cerfa_cible || '',
+    agrements: det.agrements?.map(a => ({ type: a.type || '', autorite: a.autorite || '', date_obtention: a.date_obtention || '' })) ?? [],
+    reconnue_utilite_publique: det.reconnue_utilite_publique ?? false,
+    date_publication_jo_utilite_publique: det.date_publication_jo_utilite_publique || '',
+    assujettie_impots_commerciaux: det.assujettie_impots_commerciaux ?? false,
+    reseaux_affiliation: (det.reseaux_affiliation ?? []).join(', '),
+    adherents_personnes_morales: (det.adherents_personnes_morales ?? []).map(a => a.nom).join(', '),
   };
 }
 
@@ -235,6 +263,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [lettre, setLettre] = useState('');
   const [lettreStyle, setLettreStyle] = useState<'formel' | 'accessible'>('formel');
   const [activeTab, setActiveTab] = useState<'dossier' | 'ia' | 'lettre'>('dossier');
+  const [subTab, setSubTab] = useState<'projet' | 'moyens' | 'budget' | 'relations' | 'documents'>('projet');
+  const [reprenantN1, setReprenantN1] = useState(false);
+  const [thematiqueSuggestions, setThematiqueSuggestions] = useState<string[]>([]);
 
   const [brief, setBrief] = useState<BriefMission | null>(null);
   const [briefOpen, setBriefOpen] = useState(true);
@@ -290,6 +321,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         }
       });
 
+  const loadThematiqueSuggestions = useCallback(() =>
+    fetch('/api/details-suggestions?champ=thematique')
+      .then(r => r.ok ? r.json() : { suggestions: [] })
+      .then(({ suggestions: s }) => setThematiqueSuggestions(s || [])), []);
+
   useEffect(() => {
     loadDemande();
     loadBrief();
@@ -297,7 +333,32 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     loadSuggestions();
     loadBudgetLignes();
     loadGroupe();
+    loadThematiqueSuggestions();
   }, [id]);
+
+  const reprendreValeursPrecedentes = async () => {
+    if (!demande?.demande_precedente_id) return;
+    setReprenantN1(true);
+    try {
+      const r = await fetch(`/api/demandes/${demande.demande_precedente_id}`);
+      if (!r.ok) return;
+      const { demande: prev } = await r.json();
+      const prevDet = (prev.details_json || {}) as DetailsJson;
+      setDraft(d => d ? {
+        ...d,
+        objectif_projet: prev.objectif_projet || d.objectif_projet,
+        public_beneficiaire: prev.public_beneficiaire || d.public_beneficiaire,
+        nb_beneficiaires_estime: prev.nb_beneficiaires_estime?.toString() || d.nb_beneficiaires_estime,
+        description_besoins: prevDet.description_besoins || d.description_besoins,
+        description_actions: prevDet.description_actions || d.description_actions,
+        partenariats: prevDet.partenariats || d.partenariats,
+        indicateurs_evaluation: prevDet.indicateurs_evaluation || d.indicateurs_evaluation,
+        thematique: prevDet.thematique || d.thematique,
+      } : d);
+    } finally {
+      setReprenantN1(false);
+    }
+  };
 
   const setField = <K extends keyof FullDraft>(key: K, val: FullDraft[K]) =>
     setDraft(prev => prev ? { ...prev, [key]: val } : prev);
@@ -451,6 +512,19 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       objet_demande: (draft.objet_demande || undefined) as DetailsJson['objet_demande'],
       recrutement_envisage: draft.recrutement_envisage || undefined,
       recrutement_etpt: draft.recrutement_etpt || undefined,
+      autorites_destinataires: draft.autorites_destinataires.length > 0 ? draft.autorites_destinataires : undefined,
+      contrat_de_ville: draft.contrat_de_ville_concerne ? { concerne: true, nom_contrat: draft.contrat_de_ville_nom || undefined } : undefined,
+      qpv_codes: draft.qpv_codes.length > 0 ? draft.qpv_codes : undefined,
+      agrements: draft.agrements.filter(a => a.type || a.autorite).length > 0
+        ? draft.agrements.filter(a => a.type || a.autorite).map(a => ({ type: a.type, autorite: a.autorite, date_obtention: a.date_obtention || undefined }))
+        : undefined,
+      reconnue_utilite_publique: draft.reconnue_utilite_publique || undefined,
+      date_publication_jo_utilite_publique: draft.date_publication_jo_utilite_publique || undefined,
+      assujettie_impots_commerciaux: draft.assujettie_impots_commerciaux || undefined,
+      reseaux_affiliation: draft.reseaux_affiliation ? draft.reseaux_affiliation.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+      adherents_personnes_morales: draft.adherents_personnes_morales
+        ? draft.adherents_personnes_morales.split(',').map(s => ({ nom: s.trim() })).filter(a => a.nom)
+        : undefined,
     };
     await fetch(`/api/demandes/${id}`, {
       method: 'PATCH',
@@ -479,6 +553,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         plateforme_identifiant_dossier: draft.plateforme_identifiant_dossier || null,
         budget_previsionnel_json: budgetV2,
         details_json: detailsJson,
+        type_cerfa_cible: draft.type_cerfa_cible || null,
       }),
     });
     await loadDemande();
@@ -588,6 +663,25 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
         {/* ── Dossier ─────────────────────────────────────────────── */}
         {activeTab === 'dossier' && (
           <div className="space-y-6">
+
+          {/* Sous-onglets dossier (E1) */}
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {([
+              ['projet', 'Projet'],
+              ['moyens', 'Moyens'],
+              ['budget', 'Budget'],
+              ['relations', 'Relations admin'],
+              ['documents', 'Documents'],
+            ] as const).map(([t, l]) => (
+              <button
+                key={t}
+                onClick={() => setSubTab(t)}
+                className={['px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-colors', subTab === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'].join(' ')}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
 
           {/* Brief de mission */}
           <div className="rounded-xl border border-blue-100 bg-blue-50/60">
@@ -792,7 +886,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
             {/* Colonne gauche */}
             <div className="lg:col-span-2 space-y-5">
 
-              {/* Barre d'action */}
+            {/* Barre d'action */}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">
                   {editMode ? 'Mode édition — cliquez sur Enregistrer pour sauvegarder' : savedDraft ? '✓ Dossier enregistré' : ''}
@@ -808,6 +902,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 )}
               </div>
+
+            {/* ── Sous-onglet PROJET ─────────────────────────── */}
+            {subTab === 'projet' && (<>
 
               {/* Identification */}
               <SectionCard title="Identification du projet">
@@ -839,8 +936,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         <Field label="Type de bailleur">
                           <select className="field-input" value={draft.bailleur_type} onChange={e => setField('bailleur_type', e.target.value as FullDraft['bailleur_type'])}>
                             <option value="">—</option>
-                            <option value="ville">Ville / Commune</option>
-                            <option value="departement">Département</option>
+                            {BAILLEUR_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
                           </select>
                         </Field>
                       </div>
@@ -862,6 +958,20 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                         </select>
                       </Field>
                     )}
+                    {/* D4 — Reprendre les valeurs N-1 */}
+                    {draft.demande_precedente_id && (
+                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <span className="text-xs text-amber-700 flex-1">Reprendre objectif, besoins, actions et indicateurs de la demande précédente ?</span>
+                        <button
+                          type="button"
+                          onClick={reprendreValeursPrecedentes}
+                          disabled={reprenantN1}
+                          className="shrink-0 text-xs font-medium bg-amber-600 text-white rounded px-2.5 py-1 hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {reprenantN1 ? '…' : '↩ Reprendre N-1'}
+                        </button>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Millésime (année)">
                         <input type="number" className="field-input" value={draft.annee_millesime} onChange={e => setField('annee_millesime', e.target.value)} placeholder={new Date().getFullYear().toString()} min={1990} max={2100} />
@@ -882,7 +992,18 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       </Field>
                     </div>
                     <Field label="Thématique">
-                      <input className="field-input" value={draft.thematique} onChange={e => setField('thematique', e.target.value)} placeholder="Ex : Insertion professionnelle, Éducation, Cohésion sociale, Santé…" />
+                      <input
+                        className="field-input"
+                        list="thematique-suggestions"
+                        value={draft.thematique}
+                        onChange={e => setField('thematique', e.target.value)}
+                        placeholder="Ex : Insertion professionnelle, Éducation, Cohésion sociale, Santé…"
+                      />
+                      {thematiqueSuggestions.length > 0 && (
+                        <datalist id="thematique-suggestions">
+                          {thematiqueSuggestions.map(s => <option key={s} value={s} />)}
+                        </datalist>
+                      )}
                     </Field>
                     <Field label="Objectif général du projet">
                       <textarea rows={3} className="field-textarea" value={draft.objectif_projet} onChange={e => setField('objectif_projet', e.target.value)} placeholder="En 2-3 phrases : ce que le projet vise à accomplir, pour qui et avec quel résultat attendu." />
@@ -927,7 +1048,7 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 ) : (
                   <div className="space-y-2.5">
                     <RowF label="Titre" value={demande.titre_projet} />
-                    <RowF label="Bailleur" value={demande.bailleur_nom ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${demande.bailleur_type === 'ville' ? 'Ville' : 'Département'})` : ''}` : null} />
+                    <RowF label="Bailleur" value={demande.bailleur_nom ? `${demande.bailleur_nom}${demande.bailleur_type ? ` (${BAILLEUR_TYPES.find(t => t.v === demande.bailleur_type)?.l ?? demande.bailleur_type})` : ''}` : null} />
                     <RowF label="Millésime" value={demande.annee_millesime?.toString() ?? null} />
                     <RowF label="Réf. plateforme" value={demande.plateforme_identifiant_dossier ?? null} />
                     <RowF label="Période" value={`${demande.periode_debut || '—'} → ${demande.periode_fin || '—'}`} />
@@ -1004,6 +1125,10 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     <Field label="Localisation QPV / ZUS">
                       <input className="field-input" value={draft.localisation_qpv} onChange={e => setField('localisation_qpv', e.target.value)} placeholder="Nom du quartier prioritaire ou N/A" />
                     </Field>
+                    <QPVSelector
+                      codes={draft.qpv_codes}
+                      onChange={codes => setField('qpv_codes', codes)}
+                    />
                   </div>
                 ) : (
                   <div className="space-y-2.5">
@@ -1011,10 +1136,23 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     <RowF label="Tranches d'âge" value={det.beneficiaires_age} />
                     <RowF label="Répartition sexe" value={det.beneficiaires_sexe} />
                     <RowF label="QPV / ZUS" value={det.localisation_qpv} />
+                    {det.qpv_codes && det.qpv_codes.length > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Codes QPV</p>
+                        <div className="flex flex-wrap gap-1">
+                          {det.qpv_codes.map(c => <span key={c} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>)}
+                        </div>
+                      </div>
+                    )}
                     <RowF label="Nombre estimé" value={demande.nb_beneficiaires_estime ? `${demande.nb_beneficiaires_estime} personnes` : null} />
                   </div>
                 )}
               </SectionCard>
+
+            </>)}
+
+            {/* ── Sous-onglet MOYENS ─────────────────────────── */}
+            {subTab === 'moyens' && (<>
 
               {/* Moyens humains */}
               <SectionCard title="Moyens humains">
@@ -1311,6 +1449,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 <AutoBudgetPreview lignes={lignesAutoPreview} demandeId={id} />
               )}
 
+            </>)}
+
+            {/* ── Sous-onglet BUDGET ─────────────────────────── */}
+            {subTab === 'budget' && (<>
+
               {/* Budget */}
               <SectionCard title="Budget prévisionnel">
                 {editMode ? (
@@ -1431,6 +1574,21 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 )}
               </SectionCard>
 
+              {/* Plan de financement multi-bailleurs (B1) */}
+              <SectionCard title="Plan de financement — subventions sollicitées">
+                <PlanFinancement
+                  demandeId={id}
+                  budgetLignes={budgetLignes}
+                  equilibre={budgetEquilibre}
+                  onSaved={loadBudgetLignes}
+                />
+              </SectionCard>
+
+            </>)}
+
+            {/* ── Sous-onglet PROJET (suite) ─────────────────── */}
+            {subTab === 'projet' && (<>
+
               {/* Indicateurs */}
               <SectionCard title="Indicateurs d'évaluation">
                 {editMode ? (
@@ -1446,6 +1604,16 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
               <SectionCard title="Champs déclaratifs Cerfa">
                 {editMode ? (
                   <div className="space-y-4">
+                    {/* E3 — Type de dossier Cerfa cible */}
+                    <Field label="Type de formulaire Cerfa cible">
+                      <select className="field-input" value={draft.type_cerfa_cible} onChange={e => setField('type_cerfa_cible', e.target.value)}>
+                        <option value="">— Non précisé —</option>
+                        <option value="12156_05">Cerfa 12156*05 — Subvention fonctionnement (État)</option>
+                        <option value="12156_collectivite">Cerfa 12156 — Collectivité territoriale</option>
+                        <option value="libre">Dossier de demande libre (sans Cerfa imposé)</option>
+                        <option value="dauphin">Dossier Dauphin / Subventions.fr</option>
+                      </select>
+                    </Field>
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Forme de la subvention (Cerfa p.1)">
                         <select className="field-input" value={draft.forme_subvention} onChange={e => setField('forme_subvention', e.target.value as FullDraft['forme_subvention'])}>
@@ -1461,6 +1629,45 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                           <option value="projet_action">Projet / action spécifique</option>
                         </select>
                       </Field>
+                    </div>
+                    {/* B3 — Autorités destinataires */}
+                    <div>
+                      <p className="text-xs text-gray-500 font-medium mb-2">Autorités destinataires (cumulables)</p>
+                      <div className="flex flex-wrap gap-3">
+                        {([
+                          ['etat', 'État'],
+                          ['region', 'Région'],
+                          ['departement', 'Département'],
+                          ['commune_epci', 'Commune / EPCI'],
+                          ['etablissement_public', 'Établissement public'],
+                          ['autre', 'Autre'],
+                        ] as [AutoritesDestinataires, string][]).map(([v, l]) => (
+                          <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={draft.autorites_destinataires.includes(v)}
+                              onChange={e => setField('autorites_destinataires', e.target.checked
+                                ? [...draft.autorites_destinataires, v]
+                                : draft.autorites_destinataires.filter(x => x !== v)
+                              )}
+                            />
+                            <span>{l}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.contrat_de_ville_concerne} onChange={e => setField('contrat_de_ville_concerne', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Projet lié à un Contrat de Ville</span>
+                      </label>
+                      {draft.contrat_de_ville_concerne && (
+                        <div className="mt-2 ml-6">
+                          <Field label="Nom du contrat de ville">
+                            <input className="field-input" value={draft.contrat_de_ville_nom} onChange={e => setField('contrat_de_ville_nom', e.target.value)} placeholder="Ex : Contrat de Ville Grand Paris Métropole 2024-2030" />
+                          </Field>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1482,8 +1689,15 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </div>
                 ) : (
                   <div className="space-y-2.5">
+                    {demande.type_cerfa_cible && <RowF label="Type Cerfa" value={demande.type_cerfa_cible} />}
                     <RowF label="Forme" value={det.forme_subvention === 'numeraire' ? 'En numéraire' : det.forme_subvention === 'nature' ? 'En nature' : null} />
                     <RowF label="Objet" value={det.objet_demande === 'fonctionnement_global' ? 'Fonctionnement global' : det.objet_demande === 'projet_action' ? 'Projet / action spécifique' : null} />
+                    {det.autorites_destinataires && det.autorites_destinataires.length > 0 && (
+                      <RowF label="Autorités destinataires" value={det.autorites_destinataires.join(', ')} />
+                    )}
+                    {det.contrat_de_ville?.concerne && (
+                      <RowF label="Contrat de Ville" value={det.contrat_de_ville.nom_contrat || 'Oui'} />
+                    )}
                     <RowF label="Recrutement envisagé" value={det.recrutement_envisage ? `Oui${det.recrutement_etpt ? ` — ${det.recrutement_etpt} ETPT` : ''}` : det.recrutement_envisage === false ? 'Non' : null} />
                   </div>
                 )}
@@ -1515,6 +1729,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   )}
                 </SectionCard>
               )}
+
+            </>)}
+
+            {/* ── Sous-onglet RELATIONS ──────────────────────── */}
+            {subTab === 'relations' && (<>
 
               {/* Contact référent de la demande */}
               <SectionCard title="Contact référent">
@@ -1560,10 +1779,83 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 })()}
               </SectionCard>
 
+              {/* Relations administratives (C) */}
+              <SectionCard title="Relations administratives">
+                {editMode ? (
+                  <div className="space-y-4">
+                    {/* Agréments */}
+                    <div>
+                      <p className="text-xs text-gray-500 font-medium mb-2">Agréments ministériels / préfectoraux</p>
+                      {draft.agrements.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          <div className="grid grid-cols-[1fr_1fr_120px_24px] gap-2 mb-1">
+                            <span className="text-xs text-gray-400">Type d'agrément</span>
+                            <span className="text-xs text-gray-400">Autorité</span>
+                            <span className="text-xs text-gray-400">Date</span>
+                            <span />
+                          </div>
+                          {draft.agrements.map((a, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_1fr_120px_24px] gap-2 items-center">
+                              <input className="field-input text-sm" value={a.type} onChange={e => setDraft(prev => prev ? { ...prev, agrements: prev.agrements.map((x, j) => j === i ? { ...x, type: e.target.value } : x) } : prev)} placeholder="Ex : Jeunesse et sport, ESS…" />
+                              <input className="field-input text-sm" value={a.autorite} onChange={e => setDraft(prev => prev ? { ...prev, agrements: prev.agrements.map((x, j) => j === i ? { ...x, autorite: e.target.value } : x) } : prev)} placeholder="Ex : Préfecture du 75" />
+                              <input type="date" className="field-input text-sm" value={a.date_obtention} onChange={e => setDraft(prev => prev ? { ...prev, agrements: prev.agrements.map((x, j) => j === i ? { ...x, date_obtention: e.target.value } : x) } : prev)} />
+                              <button type="button" onClick={() => setDraft(prev => prev ? { ...prev, agrements: prev.agrements.filter((_, j) => j !== i) } : prev)} className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" onClick={() => setDraft(prev => prev ? { ...prev, agrements: [...prev.agrements, { type: '', autorite: '', date_obtention: '' }] } : prev)} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter un agrément</button>
+                    </div>
+                    {/* Utilité publique */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={draft.reconnue_utilite_publique} onChange={e => setField('reconnue_utilite_publique', e.target.checked)} />
+                        <span className="text-sm font-medium text-gray-700">Association reconnue d'utilité publique (RUP)</span>
+                      </label>
+                      {draft.reconnue_utilite_publique && (
+                        <div className="ml-6">
+                          <Field label="Date publication JO">
+                            <input type="date" className="field-input" value={draft.date_publication_jo_utilite_publique} onChange={e => setField('date_publication_jo_utilite_publique', e.target.value)} />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={draft.assujettie_impots_commerciaux} onChange={e => setField('assujettie_impots_commerciaux', e.target.checked)} />
+                      <span className="text-sm font-medium text-gray-700">Assujettie aux impôts commerciaux</span>
+                    </label>
+                    <Field label="Réseaux d'affiliation (séparés par virgule)">
+                      <input className="field-input" value={draft.reseaux_affiliation} onChange={e => setField('reseaux_affiliation', e.target.value)} placeholder="Ex : Ligue de l'enseignement, Réseau national des MJC…" />
+                    </Field>
+                    <Field label="Adhérents personnes morales (séparés par virgule)">
+                      <input className="field-input" value={draft.adherents_personnes_morales} onChange={e => setField('adherents_personnes_morales', e.target.value)} placeholder="Ex : Association A, Association B…" />
+                    </Field>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {det.agrements && det.agrements.length > 0 ? (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Agréments</p>
+                        {det.agrements.map((a, i) => (
+                          <div key={i} className="text-sm text-gray-700">
+                            {a.type}{a.autorite ? ` — ${a.autorite}` : ''}{a.date_obtention ? ` (${a.date_obtention})` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    ) : <RowF label="Agréments" value={null} />}
+                    <RowF label="Utilité publique" value={det.reconnue_utilite_publique ? `Oui${det.date_publication_jo_utilite_publique ? ` — JO du ${det.date_publication_jo_utilite_publique}` : ''}` : null} />
+                    <RowF label="Impôts commerciaux" value={det.assujettie_impots_commerciaux ? 'Oui' : null} />
+                    <RowF label="Réseaux" value={det.reseaux_affiliation?.join(', ') || null} />
+                    <RowF label="Personnes morales affiliées" value={det.adherents_personnes_morales?.map(a => a.nom).join(', ') || null} />
+                  </div>
+                )}
+              </SectionCard>
+
               {/* Association — lecture seule */}
               <SectionCard title="Association">
                 <div className="space-y-2.5">
                   <Row label="Nom" value={asso.nom} />
+                  {asso.sigle && <Row label="Sigle" value={asso.sigle} />}
                   <Row label="Adresse" value={[asso.adresse, asso.code_postal, asso.ville].filter(Boolean).join(', ')} />
                   <Row label="RNA" value={asso.rna} />
                   <Row label="SIRET" value={asso.siret} />
@@ -1572,11 +1864,19 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 </div>
               </SectionCard>
 
+            </>)}
+
+            {/* ── Sous-onglet DOCUMENTS ─────────────────────── */}
+            {subTab === 'documents' && (<>
+
               {/* Documents de la demande */}
               <SectionCard title="Documents de la demande">
                 <p className="text-xs text-gray-400 mb-3">Dossiers N-1, devis, formulaires bailleur… Cliquez sur « 🤖 Analyser » pour auto-compléter les champs.</p>
                 <DocumentList entityType="demande" entityId={id} onApplied={loadDemande} />
               </SectionCard>
+
+            </>)}
+
             </div>
 
             {/* Colonne droite */}
@@ -2171,6 +2471,71 @@ function BudgetEditor({
         {balanced
           ? '✓ Budget équilibré'
           : `⚠️ Déséquilibre de ${fmt(Math.abs(totalDep - totalRec))} € — dépenses ${totalDep > totalRec ? 'supérieures' : 'inférieures'} aux recettes`}
+      </div>
+    </div>
+  );
+}
+
+/* ── QPV Selector (D1) ───────────────────────────────────────────── */
+function QPVSelector({ codes, onChange }: { codes: string[]; onChange: (codes: string[]) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Array<{ code: string; nom: string; commune: string }>>([]);
+  const [open, setOpen] = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const search = (q: string) => {
+    clearTimeout(debounce.current);
+    setQuery(q);
+    if (!q.trim()) { setResults([]); return; }
+    debounce.current = setTimeout(async () => {
+      const r = await fetch(`/api/qpv?q=${encodeURIComponent(q)}`);
+      if (r.ok) { const { qpvs } = await r.json(); setResults(qpvs ?? []); setOpen(true); }
+    }, 300);
+  };
+
+  const add = (code: string) => {
+    if (!codes.includes(code)) onChange([...codes, code]);
+    setQuery(''); setResults([]); setOpen(false);
+  };
+
+  const remove = (code: string) => onChange(codes.filter(c => c !== code));
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 font-medium mb-1">Codes QPV ciblés</p>
+      {codes.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {codes.map(c => (
+            <span key={c} className="flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">
+              {c}
+              <button type="button" onClick={() => remove(c)} className="text-purple-400 hover:text-purple-700 leading-none">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          className="field-input text-sm w-full"
+          value={query}
+          onChange={e => search(e.target.value)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Rechercher un QPV par nom ou code…"
+        />
+        {open && results.length > 0 && (
+          <div className="absolute z-10 left-0 right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+            {results.map(q => (
+              <button
+                key={q.code}
+                type="button"
+                className="w-full text-left px-3 py-2 text-xs hover:bg-purple-50 flex items-center justify-between gap-2"
+                onMouseDown={() => add(q.code)}
+              >
+                <span className="font-medium">{q.nom}</span>
+                <span className="text-gray-400 shrink-0">{q.code} — {q.commune}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

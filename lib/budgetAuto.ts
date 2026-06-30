@@ -249,21 +249,8 @@ export function genererLignesAuto(
     });
   }
 
-  // ── 11. Montant demandé à ce bailleur ────────────────────────────────────
-  if (context?.montant_demande && context.montant_demande > 0) {
-    const nomBailleur = context.bailleur_nom ?? null;
-    lignes.push({
-      cle_generation: 'auto_montant_demande_bailleur',
-      sens: 'produit',
-      compte: '74',
-      sous_categorie: 'Subvention sollicitée (ce dossier)',
-      bailleur_detail: nomBailleur ?? undefined,
-      montant: context.montant_demande,
-      precisions: nomBailleur ? `Demande en cours — ${nomBailleur}` : 'Demande en cours',
-      est_valorisation_benevolat: false,
-      statut_financement: 'demande',
-    });
-  }
+  // La règle 11 (auto_montant_demande_bailleur) a été retirée — le plan de financement
+  // multi-bailleurs (PlanFinancement.tsx) gère ces lignes via cle_generation: null.
 
   return lignes;
 }

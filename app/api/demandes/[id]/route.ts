@@ -13,7 +13,7 @@ const patchSchema = z.object({
   // Champs projet
   titre_projet: z.string().max(500).optional().nullable(),
   bailleur_nom: z.string().max(300).optional().nullable(),
-  bailleur_type: z.enum(['ville', 'departement']).optional().nullable(),
+  bailleur_type: z.enum(['etat', 'commune', 'epci', 'departement', 'region', 'etablissement_public', 'prive', 'autre']).optional().nullable(),
   montant_demande: z.number().min(0).max(10_000_000).optional().nullable(),
   periode_debut: z.string().max(50).optional().nullable(),
   periode_fin: z.string().max(50).optional().nullable(),
@@ -41,6 +41,8 @@ const patchSchema = z.object({
   groupe_pluriannuel_id: z.string().uuid().optional().nullable(),
   numero_annee_dans_groupe: z.number().int().min(1).max(4).optional().nullable(),
   nombre_annees_total_groupe: z.number().int().min(2).max(4).optional().nullable(),
+  // Type de dossier cible (E3)
+  type_cerfa_cible: z.string().max(100).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

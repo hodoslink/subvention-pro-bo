@@ -79,6 +79,8 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
   const [taux, setTaux] = useState<TauxFinancement[]>([]);
   const [loading, setLoading] = useState(true);
   const [bailleurNom, setBailleurNom] = useState('');
+  const [precedenteInfo, setPrecedenteInfo] = useState<{ id: string; annee: number | null; lignesCount: number } | null>(null);
+  const [reprisEnCours, setReprisEnCours] = useState(false);
 
   // New lines form
   const [newCharge, setNewCharge] = useState<NewLine>(emptyLine('charge'));
@@ -102,6 +104,23 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
     setEquilibre(eq ?? null);
     setTaux(t ?? []);
     setBailleurNom(demande?.bailleur_nom ?? '');
+
+    // D5 — check for demande précédente with budget lines
+    const prevId = demande?.demande_precedente_id;
+    if (prevId) {
+      const rPrev = await fetch(`/api/demandes/${prevId}/budget-lignes`);
+      if (rPrev.ok) {
+        const { lignes: prevLignes } = await rPrev.json();
+        const prevDemande = await fetch(`/api/demandes/${prevId}`).then(r => r.json()).then(d => d.demande);
+        const filteredLines = (prevLignes ?? []).filter((l: BudgetLigneDB) => !['74', '87'].includes(l.compte));
+        if (filteredLines.length > 0) {
+          setPrecedenteInfo({ id: prevId, annee: prevDemande?.annee_millesime ?? null, lignesCount: filteredLines.length });
+        }
+      }
+    } else {
+      setPrecedenteInfo(null);
+    }
+
     setLoading(false);
   }, [id]);
 
@@ -167,6 +186,37 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
     setSaving(null);
   }
 
+  async function reprendreStructureBudget() {
+    if (!precedenteInfo) return;
+    setReprisEnCours(true);
+    try {
+      const rPrev = await fetch(`/api/demandes/${precedenteInfo.id}/budget-lignes`);
+      if (!rPrev.ok) return;
+      const { lignes: prevLignes } = await rPrev.json();
+      const toReprise = (prevLignes as BudgetLigneDB[]).filter(l => !['74', '87'].includes(l.compte));
+      for (const l of toReprise) {
+        await fetch(`/api/demandes/${id}/budget-lignes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sens: l.sens,
+            compte: l.compte,
+            sous_categorie: l.sous_categorie || null,
+            bailleur_detail: l.bailleur_detail || null,
+            montant: l.montant,
+            precisions: l.precisions || null,
+            est_charge_commune: l.est_charge_commune,
+            est_valorisation_benevolat: l.est_valorisation_benevolat,
+          }),
+        });
+      }
+      setPrecedenteInfo(null);
+      await load();
+    } finally {
+      setReprisEnCours(false);
+    }
+  }
+
   function startEdit(l: BudgetLigneDB) {
     setEdits(prev => ({ ...prev, [l.id]: { ...l, _editing: true } }));
   }
@@ -220,6 +270,27 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
             </div>
           ))}
         </div>
+
+        {/* D5 — Bandeau reprendre structure N-1 */}
+        {precedenteInfo && lignes.filter(l => l.cle_generation === null).length === 0 && (
+          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800">
+                Reprendre la structure budgétaire{precedenteInfo.annee ? ` de ${precedenteInfo.annee}` : ' N-1'}
+              </p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {precedenteInfo.lignesCount} ligne{precedenteInfo.lignesCount > 1 ? 's' : ''} de charges disponible{precedenteInfo.lignesCount > 1 ? 's' : ''} (hors compte 74 et 87)
+              </p>
+            </div>
+            <button
+              onClick={reprendreStructureBudget}
+              disabled={reprisEnCours}
+              className="shrink-0 text-xs font-medium bg-amber-600 text-white rounded px-3 py-1.5 hover:bg-amber-700 disabled:opacity-50"
+            >
+              {reprisEnCours ? '…' : '↩ Reprendre'}
+            </button>
+          </div>
+        )}
 
         {/* Charges */}
         <div className="card space-y-3">
