@@ -7,6 +7,7 @@ type Details = Record<string, unknown>;
 interface Props {
   demandeId: string;
   associationNom: string;
+  consultantNom: string;
   dateLimiteDepot: string | null;
   titreProjet: string | null;
   bailleurNom: string | null;
@@ -29,6 +30,7 @@ function boolVal(details: Details, key: string): boolean {
 export default function FormulairePublicClient({
   demandeId,
   associationNom,
+  consultantNom,
   dateLimiteDepot,
   titreProjet,
   bailleurNom,
@@ -143,6 +145,19 @@ export default function FormulairePublicClient({
         )}
       </div>
 
+      {/* Indicateur de progression */}
+      <div className="flex items-center gap-3 py-2">
+        <div className="flex gap-1">
+          {[1,2,3,4,5,6].map(n => (
+            <div
+              key={n}
+              className="h-1.5 w-8 rounded-full bg-gray-200"
+            />
+          ))}
+        </div>
+        <span className="text-xs text-gray-400">6 sections · environ 10 min</span>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Section 1 : L'équipe */}
         <section className="card space-y-4">
@@ -181,6 +196,7 @@ export default function FormulairePublicClient({
                 onChange={e => setField('taux_horaire_valorisation', e.target.value)}
                 placeholder="ex: 11,65"
               />
+              <p className="text-xs text-gray-400 mt-1">Le taux officiel de valorisation du bénévolat est de 11,65 €/h (CPIS 2024).</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de salariés</label>
@@ -203,6 +219,7 @@ export default function FormulairePublicClient({
                 onChange={e => setField('cout_salarial_annuel_estime', e.target.value)}
                 placeholder="ex: 35000"
               />
+              <p className="text-xs text-gray-400 mt-1">Salaire brut annuel × 1,4 environ (charges patronales incluses). Ex : un salarié à 1 800 € brut/mois = environ 30 000 € de coût total.</p>
             </div>
           </div>
         </section>
@@ -264,6 +281,7 @@ export default function FormulairePublicClient({
                       }}
                       placeholder="ex: 150"
                     />
+                    <p className="text-xs text-gray-400 mt-1">ex : 45–80 €/séance pour un animateur, 60–120 €/séance pour un professionnel de santé.</p>
                   </div>
                   <div className="flex items-end">
                     <button
@@ -323,6 +341,7 @@ export default function FormulairePublicClient({
                   onChange={e => setField('locaux_valeur_estimee', e.target.value)}
                   placeholder="ex: 3000"
                 />
+                <p className="text-xs text-gray-400 mt-1">Estimez à partir du loyer du marché local (ex : 10–20 €/m²/mois pour un local en Île-de-France, 6–12 €/m²/mois en province).</p>
               </div>
             </div>
           )}
@@ -415,6 +434,7 @@ export default function FormulairePublicClient({
                   onChange={e => setField('location_salle_cout_annuel', e.target.value)}
                   placeholder="ex: 1200"
                 />
+                <p className="text-xs text-gray-400 mt-1">ex : 10–25 €/h pour une salle municipale, 25–60 €/h dans le secteur privé.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Précisions</label>
@@ -453,6 +473,7 @@ export default function FormulairePublicClient({
                 onChange={e => setField('assurance_cout_annuel', e.target.value)}
                 placeholder="ex: 400"
               />
+              <p className="text-xs text-gray-400 mt-1">ex : 150–400 €/an pour une RC associative couvrant des activités physiques ou de santé.</p>
             </div>
           )}
 
@@ -487,6 +508,7 @@ export default function FormulairePublicClient({
                   onChange={e => setField('deplacements_cout_moyen', e.target.value)}
                   placeholder="ex: 25"
                 />
+                <p className="text-xs text-gray-400 mt-1">Barème kilométrique 2025 : 0,43 €/km (véhicule 5CV). Transport en commun : conservez les justificatifs.</p>
               </div>
             </div>
           )}
@@ -607,19 +629,37 @@ export default function FormulairePublicClient({
         </section>
 
         {/* Submit */}
-        <div className="sticky bottom-4 bg-white/90 backdrop-blur border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4 shadow-lg">
-          {error && <p className="text-sm text-red-600 flex-1">{error}</p>}
-          {saved && !error && (
-            <p className="text-sm text-green-700 flex-1">Réponses enregistrées avec succès.</p>
-          )}
-          {!saved && !error && <div className="flex-1" />}
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn btn-primary shrink-0"
-          >
-            {saving ? 'Enregistrement…' : 'Enregistrer mes réponses'}
-          </button>
+        <div className="sticky bottom-4 bg-white/90 backdrop-blur border border-gray-200 rounded-xl p-4 shadow-lg space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            {error && <p className="text-sm text-red-600 flex-1">{error}</p>}
+            {saved && !error && (
+              <div className="text-sm text-green-700 flex-1 space-y-0.5">
+                <p className="font-medium">✓ Vos réponses ont bien été transmises.</p>
+                <p className="text-green-600 text-xs">
+                  {consultantNom
+                    ? `${consultantNom} les intègre au dossier et reviendra vers vous si besoin.`
+                    : 'Votre conseiller les intègre au dossier et reviendra vers vous si besoin.'
+                  }
+                  {dateLimiteDepot
+                    ? ` Dépôt prévu avant le ${fmtDate(dateLimiteDepot)}.`
+                    : ''
+                  }
+                </p>
+              </div>
+            )}
+            {!saved && !error && <div className="flex-1" />}
+            <button
+              type="submit"
+              disabled={saving}
+              className="btn btn-primary shrink-0"
+            >
+              {saving ? 'Enregistrement…' : 'Enregistrer mes réponses'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 text-center">
+            Vous pouvez enregistrer maintenant et revenir compléter plus tard —
+            le lien reste valide, vos réponses sont conservées à chaque envoi.
+          </p>
         </div>
       </form>
 

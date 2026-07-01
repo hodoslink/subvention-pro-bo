@@ -22,7 +22,7 @@ export default async function FormulairePublicPage({
 
   const { data: demande } = await supabaseAdmin
     .from('demandes')
-    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom)')
+    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom), profiles!consultant_id(nom_complet)')
     .eq('id', id)
     .single();
 
@@ -43,10 +43,14 @@ export default async function FormulairePublicPage({
   const association = (demande.associations as any);
   const associationNom: string = association?.nom ?? '';
 
+  const consultantNom: string =
+    (demande.profiles as { nom_complet?: string } | null)?.nom_complet ?? '';
+
   return (
     <FormulairePublicClient
       demandeId={id}
       associationNom={associationNom}
+      consultantNom={consultantNom}
       dateLimiteDepot={demande.date_limite_depot ?? null}
       titreProjet={demande.titre_projet ?? null}
       bailleurNom={demande.bailleur_nom ?? null}
