@@ -20,13 +20,13 @@ export default async function FormulairePublicPage({
 
   const supabaseAdmin = getSupabaseServer();
 
-  const { data: demande } = await supabaseAdmin
+  const { data: demande, error: demandeErr } = await supabaseAdmin
     .from('demandes')
-    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, associations(nom), profiles!consultant_id(nom_complet)')
+    .select('id, formulaire_public_ouvert_le, details_json, montant_demande, bailleur_nom, date_limite_depot, titre_projet, periode_debut, periode_fin, objectif_projet, consultant_id, associations(nom)')
     .eq('id', id)
     .single();
 
-  if (!demande) {
+  if (demandeErr || !demande) {
     return <PageErreur message="Ce formulaire est introuvable. Contactez votre conseiller." />;
   }
 
@@ -43,8 +43,16 @@ export default async function FormulairePublicPage({
   const association = (demande.associations as any);
   const associationNom: string = association?.nom ?? '';
 
-  const consultantNom: string =
-    (demande.profiles as { nom_complet?: string } | null)?.nom_complet ?? '';
+  // Fetch consultant name separately to avoid FK join issues
+  let consultantNom = '';
+  if (demande.consultant_id) {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('nom_complet')
+      .eq('id', demande.consultant_id)
+      .single();
+    consultantNom = profile?.nom_complet ?? '';
+  }
 
   return (
     <FormulairePublicClient
