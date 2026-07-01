@@ -15,7 +15,7 @@ export default async function FormulairePublicPage({
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    return <PageErreur message="Session expirée. Utilisez le lien reçu par email." />;
+    return <PageErreur message="Lien expiré ou invalide. Demandez à votre conseiller de générer un nouveau lien." />;
   }
 
   const supabaseAdmin = getSupabaseServer();
