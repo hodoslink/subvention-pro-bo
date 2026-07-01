@@ -1799,6 +1799,64 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
 
               {/* Formulaire public association */}
               <SectionCard title="Formulaire association">
+                {(() => {
+                  function labelIncertain(cle: string): string {
+                    const labels: Record<string, string> = {
+                      taux_horaire_valorisation_incertain:        'Taux horaire de valorisation bénévoles',
+                      cout_salarial_annuel_estime_incertain:      'Coût salarial annuel estimé',
+                      locaux_valeur_estimee_incertain:            'Valeur estimée des locaux mis à disposition',
+                      location_salle_cout_annuel_incertain:       'Coût annuel location de salle',
+                      assurance_cout_annuel_incertain:            'Coût annuel assurance',
+                      deplacements_frequence_mensuelle_incertain: 'Fréquence mensuelle des déplacements',
+                      deplacements_cout_moyen_incertain:          'Coût moyen par déplacement',
+                      nb_adherents_payants_incertain:             "Nombre d'adhérents payants",
+                      tarif_moyen_annuel_incertain:               "Tarif moyen annuel d'adhésion",
+                    };
+                    if (cle.startsWith('prestataires[')) {
+                      const match = cle.match(/prestataires\[(\d+)\]/);
+                      const idx = match ? parseInt(match[1]) + 1 : '?';
+                      return `Tarif du prestataire n°${idx}`;
+                    }
+                    return labels[cle] ?? cle;
+                  }
+
+                  const champsIncertains: string[] = [];
+                  if (demande?.details_json) {
+                    const dj = demande.details_json as Record<string, unknown>;
+                    const clesCibles = [
+                      'taux_horaire_valorisation_incertain',
+                      'cout_salarial_annuel_estime_incertain',
+                      'locaux_valeur_estimee_incertain',
+                      'location_salle_cout_annuel_incertain',
+                      'assurance_cout_annuel_incertain',
+                      'deplacements_frequence_mensuelle_incertain',
+                      'deplacements_cout_moyen_incertain',
+                      'nb_adherents_payants_incertain',
+                      'tarif_moyen_annuel_incertain',
+                    ];
+                    clesCibles.forEach(cle => {
+                      if (dj[cle] === true) champsIncertains.push(cle);
+                    });
+                    if (Array.isArray(dj.prestataires)) {
+                      (dj.prestataires as Array<{ tarif_incertain?: boolean }>)
+                        .forEach((p, i) => {
+                          if (p.tarif_incertain) champsIncertains.push(`prestataires[${i}].tarif_unitaire`);
+                        });
+                    }
+                  }
+                  const nbIncertains = champsIncertains.length;
+
+                  const dj = (demande?.details_json ?? {}) as Record<string, unknown>;
+                  const notesRenseignees = [
+                    { key: 'notes_section_1', label: "L'équipe" },
+                    { key: 'notes_section_2', label: 'Intervenants extérieurs' },
+                    { key: 'notes_section_3', label: 'Lieu et matériel' },
+                    { key: 'notes_section_4', label: 'Assurance et déplacements' },
+                    { key: 'notes_section_5', label: 'Participation des bénéficiaires' },
+                    { key: 'notes_section_6', label: 'Autres financements' },
+                  ].filter(n => typeof dj[n.key] === 'string' && (dj[n.key] as string).trim());
+
+                  return (
                 <div className="space-y-4">
                   {lienFormulaire?.rempli_le && (
                     <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
@@ -1810,6 +1868,32 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                     <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
                       <span>👁</span>
                       <span>Formulaire ouvert le {new Date(lienFormulaire.ouvert_le).toLocaleDateString('fr-FR')} — aucune réponse enregistrée</span>
+                    </div>
+                  )}
+                  {nbIncertains > 0 && (
+                    <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                      <span>⚠️</span>
+                      <div className="space-y-1">
+                        <span className="font-medium">
+                          {nbIncertains} champ{nbIncertains > 1 ? 's' : ''} à confirmer avec l&apos;association
+                        </span>
+                        <ul className="text-xs text-amber-700 list-disc list-inside space-y-0.5">
+                          {champsIncertains.map(c => (
+                            <li key={c}>{labelIncertain(c)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                  {notesRenseignees.length > 0 && (
+                    <div className="space-y-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">💬 Notes du référent</p>
+                      {notesRenseignees.map(n => (
+                        <div key={n.key}>
+                          <p className="text-xs text-gray-400 font-medium">{n.label}</p>
+                          <p className="text-sm text-gray-700 mt-0.5">{dj[n.key] as string}</p>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="space-y-1.5">
@@ -1876,6 +1960,8 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   </button>
                   <p className="text-xs text-gray-400">Chaque génération crée un nouveau lien à usage unique.</p>
                 </div>
+                  );
+                })()}
               </SectionCard>
 
               {/* Relations administratives (C) */}
