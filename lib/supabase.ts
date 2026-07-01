@@ -132,7 +132,12 @@ export type DetailsJson = {
   // Cotisations actives des bénéficiaires
   cotisations_actives?: boolean;
   nb_adherents_payants?: string;
-  tarif_moyen_annuel?: string;
+  tarif_moyen_annuel?: string;          // rétrocompatibilité — remplacé par tarif_cotisation_annuelle + 706
+  tarif_cotisation_annuelle?: string;   // tarif annuel d'adhésion → compte 756
+  nb_seances_mensuelles_moyen?: string; // nb séances/mois → compte 706
+  nb_participants_moyen_seance?: string; // nb participants par séance → compte 706
+  tarif_moyen_participation?: string;   // tarif par participant par séance → compte 706
+  nb_mois_activite?: string;            // mois d'activité sur l'année (défaut 10) → compte 706
   // Autres bailleurs sollicités sur ce projet
   autres_bailleurs_sollicites?: Array<{ nom_bailleur: string; montant: string; statut: 'obtenu' | 'demande' | 'envisage' }>;
   // Relations administratives (Partie C)

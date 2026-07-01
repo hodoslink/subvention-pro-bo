@@ -301,16 +301,38 @@ export function MoyensTab() {
             <div>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={draft.cotisations_actives} onChange={e => setField('cotisations_actives', e.target.checked)} />
-                <span className="text-sm font-medium text-gray-700">Cotisations / prestations des bénéficiaires (compte 70)</span>
+                <span className="text-sm font-medium text-gray-700">Cotisations et participations des bénéficiaires</span>
               </label>
               {draft.cotisations_actives && (
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <Field label="Nb adhérents payants">
-                    <input type="number" className="field-input" value={draft.nb_adherents_payants} onChange={e => setField('nb_adherents_payants', e.target.value)} placeholder="Ex : 80" min={0} />
-                  </Field>
-                  <Field label="Tarif moyen annuel (€/pers.)">
-                    <input type="number" className="field-input" value={draft.tarif_moyen_annuel} onChange={e => setField('tarif_moyen_annuel', e.target.value)} placeholder="Ex : 50" min={0} step={0.01} />
-                  </Field>
+                <div className="mt-3 space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-indigo-600 mb-2">Cotisations annuelles — compte 756</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Nb adhérents payants">
+                        <input type="number" className="field-input" value={draft.nb_adherents_payants} onChange={e => setField('nb_adherents_payants', e.target.value)} placeholder="Ex : 80" min={0} />
+                      </Field>
+                      <Field label="Tarif annuel d'adhésion (€/pers.)">
+                        <input type="number" className="field-input" value={draft.tarif_cotisation_annuelle} onChange={e => setField('tarif_cotisation_annuelle', e.target.value)} placeholder="Ex : 20" min={0} step={0.01} />
+                      </Field>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-indigo-600 mb-2">Participations aux activités — compte 706</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Séances/mois en moyenne">
+                        <input type="number" className="field-input" value={draft.nb_seances_mensuelles_moyen} onChange={e => setField('nb_seances_mensuelles_moyen', e.target.value)} placeholder="Ex : 4" min={0} />
+                      </Field>
+                      <Field label="Nb participants/séance">
+                        <input type="number" className="field-input" value={draft.nb_participants_moyen_seance} onChange={e => setField('nb_participants_moyen_seance', e.target.value)} placeholder="Ex : 12" min={0} />
+                      </Field>
+                      <Field label="Tarif par participant/séance (€)">
+                        <input type="number" className="field-input" value={draft.tarif_moyen_participation} onChange={e => setField('tarif_moyen_participation', e.target.value)} placeholder="Ex : 5" min={0} step={0.01} />
+                      </Field>
+                      <Field label="Mois d'activité/an">
+                        <input type="number" className="field-input" value={draft.nb_mois_activite} onChange={e => setField('nb_mois_activite', e.target.value)} placeholder="Ex : 10" min={1} max={12} />
+                      </Field>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -337,7 +359,8 @@ export function MoyensTab() {
             </div>
             <RowF label="Assurance dédiée" value={det.assurance_dediee && det.assurance_cout_annuel ? `${parseFloat(det.assurance_cout_annuel).toLocaleString('fr-FR')} €/an` : det.assurance_dediee ? 'Oui' : null} />
             <RowF label="Déplacements estimés" value={det.deplacements_estimes && det.deplacements_frequence_mensuelle && det.deplacements_cout_moyen ? `${det.deplacements_frequence_mensuelle} trajet(s)/mois × ${det.deplacements_cout_moyen} €` : det.deplacements_estimes ? 'Oui' : null} />
-            <RowF label="Cotisations bénéficiaires" value={det.cotisations_actives && det.nb_adherents_payants ? `${det.nb_adherents_payants} adhérents × ${det.tarif_moyen_annuel || '?'} €/an` : det.cotisations_actives ? 'Oui' : null} />
+            <RowF label="Cotisations annuelles (756)" value={det.cotisations_actives && det.nb_adherents_payants ? `${det.nb_adherents_payants} adhérents × ${det.tarif_cotisation_annuelle || '?'} €/an` : det.cotisations_actives ? 'Oui' : null} />
+            <RowF label="Participations séances (706)" value={det.cotisations_actives && det.nb_seances_mensuelles_moyen ? `${det.nb_seances_mensuelles_moyen} séances/mois × ${det.nb_participants_moyen_seance || '?'} pers. × ${det.tarif_moyen_participation || '?'} €` : null} />
           </div>
         )}
       </SectionCard>

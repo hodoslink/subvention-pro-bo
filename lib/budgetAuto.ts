@@ -25,6 +25,23 @@ export type LigneAutoGeneree = {
   statut_financement?: string | null;
 };
 
+function compteAchat(nomType: string): string {
+  const n = nomType.toLowerCase();
+  if (n.includes('alimentaire') || n.includes('denrée') || n.includes('cuisine') ||
+      n.includes('diété') || n.includes('ingrédient'))
+    return '602';
+  if (n.includes('communication') || n.includes('flyer') || n.includes('affiche') ||
+      n.includes('kakémono') || n.includes('impression') || n.includes('publication'))
+    return '623';
+  if (n.includes('carburant') || n.includes('déplacement') || n.includes('transport'))
+    return '625';
+  if (n.includes('abonnement') || n.includes('logiciel') || n.includes('site') ||
+      n.includes('internet') || n.includes('numérique') || n.includes('assoconnect') ||
+      n.includes('microsoft') || n.includes('adobe') || n.includes('bancaire'))
+    return '627';
+  return '606';
+}
+
 function parseNum(s: string | number | undefined): number {
   if (s == null || s === '') return NaN;
   return typeof s === 'number' ? s : parseFloat(String(s).replace(',', '.'));
@@ -146,7 +163,7 @@ export function genererLignesAuto(
       lignes.push({
         cle_generation: `auto_achat_${i}`,
         sens: 'charge',
-        compte: '60',
+        compte: compteAchat(a.nom_type),
         sous_categorie: a.nom_type,
         quantite: qte,
         prix_unitaire: cout,
@@ -198,7 +215,7 @@ export function genererLignesAuto(
       lignes.push({
         cle_generation: 'auto_deplacements',
         sens: 'charge',
-        compte: '62',
+        compte: '625',
         sous_categorie: 'Déplacements et missions',
         quantite: totalTrajets,
         prix_unitaire: coutMoyen,
@@ -209,20 +226,43 @@ export function genererLignesAuto(
     }
   }
 
-  // ── 9. Cotisations / prestations des bénéficiaires ────────────────────────
+  // ── 9. Cotisations / participations des bénéficiaires ────────────────────
   if (details.cotisations_actives) {
+    // 9a. Cotisations annuelles → 756
     const nbAdherents = parseNum(details.nb_adherents_payants);
-    const tarifMoyen = parseNum(details.tarif_moyen_annuel);
-    if (nbAdherents > 0 && tarifMoyen > 0) {
+    const tarifAdhesion = parseNum(details.tarif_cotisation_annuelle);
+    if (nbAdherents > 0 && tarifAdhesion > 0) {
       lignes.push({
-        cle_generation: 'auto_cotisations',
+        cle_generation: 'auto_cotisations_756',
         sens: 'produit',
-        compte: '70',
-        sous_categorie: 'Vente de prestations / cotisations',
+        compte: '756',
+        sous_categorie: 'Cotisations annuelles des adhérents',
         quantite: nbAdherents,
-        prix_unitaire: tarifMoyen,
-        montant: round2(nbAdherents * tarifMoyen),
-        precisions: `${nbAdherents} adhérent(s) × ${tarifMoyen} €/an`,
+        prix_unitaire: tarifAdhesion,
+        montant: round2(nbAdherents * tarifAdhesion),
+        precisions: `${nbAdherents} adhérent(s) × ${tarifAdhesion} €/an`,
+        est_valorisation_benevolat: false,
+      });
+    }
+
+    // 9b. Participations aux séances → 706
+    const nbSeancesMois = parseNum(details.nb_seances_mensuelles_moyen);
+    const nbParticipants = parseNum(details.nb_participants_moyen_seance);
+    const tarifParticipation = parseNum(details.tarif_moyen_participation);
+    const nbMoisActivite = parseNum(details.nb_mois_activite) || 10;
+
+    if (nbSeancesMois > 0 && nbParticipants > 0 && tarifParticipation > 0) {
+      const totalSeances = round2(nbSeancesMois * nbMoisActivite);
+      const montant706 = round2(totalSeances * nbParticipants * tarifParticipation);
+      lignes.push({
+        cle_generation: 'auto_participations_706',
+        sens: 'produit',
+        compte: '706',
+        sous_categorie: 'Participations financières aux activités',
+        quantite: totalSeances,
+        prix_unitaire: round2(nbParticipants * tarifParticipation),
+        montant: montant706,
+        precisions: `${nbSeancesMois} séance(s)/mois × ${nbMoisActivite} mois × ${nbParticipants} participant(s) × ${tarifParticipation} €`,
         est_valorisation_benevolat: false,
       });
     }
@@ -308,6 +348,15 @@ export function detecterPatternsInactifs(details: DetailsJson): PatternSuggestio
       cle: 'cotisations_actives',
       label: 'Cotisations / prestations des bénéficiaires',
       description: 'Les bénéficiaires paient-ils des cotisations ou participations ?',
+      section_cible: 'Charges et recettes additionnelles',
+    });
+  }
+
+  if (details.cotisations_actives && !details.nb_seances_mensuelles_moyen) {
+    suggestions.push({
+      cle: 'nb_seances_mensuelles_moyen',
+      label: 'Participations aux activités (compte 706)',
+      description: 'Renseignez le nombre de séances et le tarif de participation pour générer cette recette — souvent la principale ressource propre.',
       section_cible: 'Charges et recettes additionnelles',
     });
   }

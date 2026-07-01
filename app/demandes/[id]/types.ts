@@ -64,6 +64,11 @@ export type FullDraft = {
   cotisations_actives: boolean;
   nb_adherents_payants: string;
   tarif_moyen_annuel: string;
+  tarif_cotisation_annuelle: string;
+  nb_seances_mensuelles_moyen: string;
+  nb_participants_moyen_seance: string;
+  tarif_moyen_participation: string;
+  nb_mois_activite: string;
   autres_bailleurs_sollicites: AutreBailleurDraft[];
   forme_subvention: 'numeraire' | 'nature' | '';
   objet_demande: 'fonctionnement_global' | 'projet_action' | '';
@@ -185,6 +190,11 @@ export function draftFromDemande(d: FullDemande): FullDraft {
     cotisations_actives: det.cotisations_actives ?? false,
     nb_adherents_payants: det.nb_adherents_payants || '',
     tarif_moyen_annuel: det.tarif_moyen_annuel || '',
+    tarif_cotisation_annuelle: det.tarif_cotisation_annuelle || '',
+    nb_seances_mensuelles_moyen: det.nb_seances_mensuelles_moyen || '',
+    nb_participants_moyen_seance: det.nb_participants_moyen_seance || '',
+    tarif_moyen_participation: det.tarif_moyen_participation || '',
+    nb_mois_activite: det.nb_mois_activite || '',
     autres_bailleurs_sollicites: det.autres_bailleurs_sollicites?.map(b => ({ ...b })) ?? [],
     forme_subvention: (det.forme_subvention as FullDraft['forme_subvention']) || '',
     objet_demande: (det.objet_demande as FullDraft['objet_demande']) || '',
