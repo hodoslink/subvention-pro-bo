@@ -91,3 +91,32 @@ export async function PATCH(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(req: NextRequest) {
+  if (!await requireAdmin(req)) {
+    return NextResponse.json({ error: 'Accès refusé.' }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'ID requis.' }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServer();
+
+  const callerProfile = await getProfileFromRequest(req);
+  if (callerProfile?.id === id) {
+    return NextResponse.json(
+      { error: 'Vous ne pouvez pas supprimer votre propre compte.' },
+      { status: 403 }
+    );
+  }
+
+  const { error } = await supabase.auth.admin.deleteUser(id);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

@@ -27,6 +27,10 @@ export default function UtilisateursPage() {
   const [editNom, setEditNom] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Suppression
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const load = async () => {
     const r = await fetch("/api/admin/utilisateurs");
     if (r.status === 403) { setForbidden(true); setLoading(false); return; }
@@ -61,6 +65,30 @@ export default function UtilisateursPage() {
       setInviteMsg({ ok: false, text: "Erreur réseau." });
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleDelete(u: Utilisateur) {
+    const ok = window.confirm(
+      `Supprimer définitivement ${u.nom_complet || u.id} ?\n\n` +
+      `Ses dossiers seront conservés mais ne seront plus assignés à personne.`
+    );
+    if (!ok) return;
+
+    setDeletingId(u.id);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/admin/utilisateurs?id=${u.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        await load();
+      } else {
+        setDeleteError(data.error ?? `Erreur ${res.status}`);
+      }
+    } catch {
+      setDeleteError('Erreur réseau.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -161,12 +189,22 @@ export default function UtilisateursPage() {
                         >
                           Modifier
                         </button>
+                        <button
+                          className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
+                          disabled={deletingId === u.id}
+                          onClick={() => handleDelete(u)}
+                        >
+                          {deletingId === u.id ? '…' : 'Supprimer'}
+                        </button>
                       </div>
                     </div>
                   )}
                 </li>
               ))}
             </ul>
+          )}
+          {deleteError && (
+            <p className="text-sm text-red-600 mt-2">{deleteError}</p>
           )}
         </section>
 

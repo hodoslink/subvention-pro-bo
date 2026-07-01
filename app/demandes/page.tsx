@@ -117,7 +117,46 @@ function NouvellDemandeModal({ onClose, onCreated }: { onClose: () => void; onCr
   );
 }
 
-type DemandeWithAsso = Demande & { associations: { nom: string; ville: string } };
+type DemandeWithAsso = Demande & {
+  associations: { nom: string; ville: string };
+  date_limite_depot?: string | null;
+};
+
+type DeadlineStatus = 'urgent' | 'proche' | 'ok' | 'depasse' | null;
+
+function getDeadlineStatus(dateStr: string | null | undefined): DeadlineStatus {
+  if (!dateStr) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const deadline = new Date(dateStr);
+  const diffDays = Math.floor(
+    (deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (diffDays < 0)  return 'depasse';
+  if (diffDays <= 7)  return 'urgent';
+  if (diffDays <= 30) return 'proche';
+  return 'ok';
+}
+
+function DeadlineBadge({ date }: { date: string | null | undefined }) {
+  if (!date) return <span className="text-gray-300">—</span>;
+  const status = getDeadlineStatus(date);
+  const label = new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const styles: Record<NonNullable<DeadlineStatus>, string> = {
+    urgent:  'bg-red-100 text-red-700 font-semibold',
+    proche:  'bg-amber-100 text-amber-700',
+    ok:      'bg-gray-100 text-gray-600',
+    depasse: 'bg-gray-100 text-gray-400 line-through',
+  };
+  const prefix: Record<NonNullable<DeadlineStatus>, string> = {
+    urgent: '🔴 ', proche: '🟡 ', ok: '', depasse: '',
+  };
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${styles[status!]}`}>
+      {prefix[status!]}{label}
+    </span>
+  );
+}
 
 const ANNEES = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
 
@@ -131,6 +170,7 @@ function DemandesContent() {
   const [statut, setStatut] = useState(searchParams.get('statut') || '');
   const [annee, setAnnee] = useState(searchParams.get('annee') || '');
   const [showModal, setShowModal] = useState(false);
+  const [filtreUrgence, setFiltreUrgence] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -193,6 +233,12 @@ function DemandesContent() {
             <option value="">Toutes les années</option>
             {ANNEES.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          <button
+            className={`btn text-xs ${filtreUrgence ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setFiltreUrgence(v => !v)}
+          >
+            🔴 Dépôt imminent
+          </button>
           {(q || statut || annee) && (
             <button
               className="btn btn-ghost text-xs"
@@ -211,6 +257,7 @@ function DemandesContent() {
                 <th className="text-left px-4 py-3 font-medium">Association</th>
                 <th className="text-left px-4 py-3 font-medium">Projet</th>
                 <th className="text-left px-4 py-3 font-medium">Bailleur</th>
+                <th className="text-left px-4 py-3 font-medium">Dépôt</th>
                 <th className="text-right px-4 py-3 font-medium">Montant</th>
                 <th className="text-left px-4 py-3 font-medium">Statut</th>
                 <th className="text-left px-4 py-3 font-medium">Prestataire</th>
@@ -218,11 +265,18 @@ function DemandesContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">Chargement…</td></tr>
-              ) : demandes.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">Aucune demande trouvée</td></tr>
-              ) : demandes.map((d) => (
+              {(() => {
+                const demandesFiltrees = filtreUrgence
+                  ? demandes.filter(d => {
+                      const s = getDeadlineStatus(d.date_limite_depot);
+                      return s === 'urgent' || s === 'proche';
+                    })
+                  : demandes;
+                return loading ? (
+                <tr><td colSpan={8} className="text-center py-10 text-gray-400">Chargement…</td></tr>
+              ) : demandesFiltrees.length === 0 ? (
+                <tr><td colSpan={8} className="text-center py-10 text-gray-400">Aucune demande trouvée</td></tr>
+              ) : demandesFiltrees.map((d) => (
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
                     <Link href={`/associations/${d.association_id}`} className="text-blue-600 hover:underline font-medium">
@@ -241,6 +295,7 @@ function DemandesContent() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{d.bailleur_nom}</td>
+                  <td className="px-4 py-3"><DeadlineBadge date={d.date_limite_depot} /></td>
                   <td className="px-4 py-3 text-right text-gray-700">
                     {d.montant_demande ? d.montant_demande.toLocaleString('fr-FR') + ' €' : '—'}
                   </td>
@@ -250,12 +305,18 @@ function DemandesContent() {
                     {new Date(d.created_at).toLocaleDateString('fr-FR')}
                   </td>
                 </tr>
-              ))}
+              ));
+              })()}
             </tbody>
           </table>
         </div>
 
-        <p className="text-xs text-gray-400">{demandes.length} résultat{demandes.length !== 1 ? 's' : ''}</p>
+        <p className="text-xs text-gray-400">
+          {filtreUrgence
+            ? demandes.filter(d => { const s = getDeadlineStatus(d.date_limite_depot); return s === 'urgent' || s === 'proche'; }).length
+            : demandes.length
+          } résultat{demandes.length !== 1 ? 's' : ''}
+        </p>
       </div>
     </AppShell>
   );
