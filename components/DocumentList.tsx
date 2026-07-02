@@ -22,9 +22,16 @@ type ExtractedDemande = {
   titre_projet?: string; objectif_projet?: string; public_beneficiaire?: string;
   nb_beneficiaires_estime?: number; montant_demande?: number; bailleur_nom?: string;
   bailleur_type?: string; periode_debut?: string; periode_fin?: string;
+  date_depot?: string;
+  type_demande?: string;
+  plateforme_identifiant_dossier?: string;
   bilan_subvention_anterieure?: number; bilan_nb_beneficiaires_reel?: number; bilan_activites?: string;
   details_json?: Record<string, string>;
-  budget_lignes?: { sens: string; compte: string; sous_categorie?: string; bailleur_detail?: string; montant: number; precisions?: string }[];
+  budget_lignes?: {
+    sens: string; compte: string; sous_categorie?: string;
+    bailleur_detail?: string; montant: number; precisions?: string;
+    statut_financement?: string;
+  }[];
 };
 type ExtractedFields = ExtractedAsso | ExtractedDemande;
 
@@ -35,10 +42,20 @@ const ASSO_LABELS: Record<string, string> = {
   date_creation: 'Date de création', objet_social: 'Objet social',
 };
 const DEMANDE_LABELS: Record<string, string> = {
-  titre_projet: 'Titre du projet', objectif_projet: 'Objectif', public_beneficiaire: 'Public bénéficiaire',
-  nb_beneficiaires_estime: 'Nb bénéficiaires estimé', montant_demande: 'Montant demandé (€)',
-  bailleur_nom: 'Bailleur', bailleur_type: 'Type bailleur', periode_debut: 'Début', periode_fin: 'Fin',
-  bilan_subvention_anterieure: 'Subvention N-1 (€)', bilan_nb_beneficiaires_reel: 'Bénéficiaires réels N-1',
+  titre_projet: 'Titre du projet',
+  objectif_projet: 'Objectif',
+  public_beneficiaire: 'Public bénéficiaire',
+  nb_beneficiaires_estime: 'Nb bénéficiaires estimé',
+  montant_demande: 'Montant demandé (€)',
+  bailleur_nom: 'Bailleur',
+  bailleur_type: 'Type bailleur',
+  periode_debut: 'Date de début',
+  periode_fin: 'Date de fin',
+  date_depot: 'Date de dépôt',
+  type_demande: 'Type (1ère demande / renouvellement)',
+  plateforme_identifiant_dossier: 'N° dossier bailleur',
+  bilan_subvention_anterieure: 'Subvention N-1 (€)',
+  bilan_nb_beneficiaires_reel: 'Bénéficiaires réels N-1',
   bilan_activites: 'Bilan activités N-1',
 };
 const DETAILS_LABELS: Record<string, string> = {
@@ -59,7 +76,11 @@ const TYPE_DOC_OPTIONS = [
   { value: 'autre', label: 'Autre' },
 ];
 
-const ANALYSABLE = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const ANALYSABLE = [
+  'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
 const fmtSize = (b?: number) => !b ? '' : b > 1_000_000 ? `${(b / 1_000_000).toFixed(1)} Mo` : `${Math.round(b / 1_000)} Ko`;
 
 export function DocumentList({
@@ -81,6 +102,7 @@ export function DocumentList({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const listUrl = entityType === 'association'
@@ -93,10 +115,16 @@ export function DocumentList({
       : `/api/documents/demande/${docId}`;
 
   const load = useCallback(async () => {
-    const r = await fetch(listUrl);
-    const { documents } = await r.json();
-    setDocs(documents ?? []);
-    setLoading(false);
+    try {
+      const r = await fetch(listUrl);
+      if (!r.ok) { setLoading(false); return; }
+      const json = await r.json();
+      setDocs(json.documents ?? []);
+    } catch {
+      // réseau inaccessible — on garde l'état existant
+    } finally {
+      setLoading(false);
+    }
   }, [listUrl]);
 
   useEffect(() => { load(); }, [load]);
@@ -117,16 +145,24 @@ export function DocumentList({
 
   async function upload(file: File) {
     setUploading(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    if (entityType === 'association') fd.append('type_doc', uploadTypeDoc);
-    const r = await fetch(listUrl, { method: 'POST', body: fd });
-    if (!r.ok) {
-      const { error } = await r.json();
-      alert(error || 'Erreur upload');
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (entityType === 'association') fd.append('type_doc', uploadTypeDoc);
+      const r = await fetch(listUrl, { method: 'POST', body: fd });
+      if (!r.ok) {
+        let msg = `Erreur ${r.status}`;
+        try { const j = await r.json(); msg = j.error || msg; } catch { /* pas de JSON */ }
+        setUploadError(msg);
+        return;
+      }
+      await load();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Erreur réseau');
+    } finally {
+      setUploading(false);
     }
-    await load();
-    setUploading(false);
   }
 
   async function analyseDoc(doc: DocRecord) {
@@ -207,7 +243,15 @@ export function DocumentList({
             fetch(`/api/demandes/${entityId}/budget-lignes`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(l),
+              body: JSON.stringify({
+                sens: l.sens,
+                compte: l.compte,
+                sous_categorie: l.sous_categorie,
+                bailleur_detail: l.bailleur_detail,
+                montant: l.montant,
+                precisions: l.precisions,
+                statut_financement: l.statut_financement ?? null,
+              }),
             })
           )
         );
@@ -252,11 +296,11 @@ export function DocumentList({
         >
           {uploading ? '⏳ Upload…' : '+ Ajouter un document'}
         </button>
-        <span className="text-xs text-gray-400">PDF, image — max 20 Mo</span>
+        <span className="text-xs text-gray-400">PDF, Excel, image — max 20 Mo</span>
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+          accept="application/pdf,image/jpeg,image/png,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,.xlsx"
           className="hidden"
           onChange={e => {
             const f = e.target.files?.[0];
@@ -266,6 +310,16 @@ export function DocumentList({
         />
         {applied && <span className="text-xs text-green-600 font-medium">✓ Champs appliqués</span>}
       </div>
+      {uploadError && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <span className="text-red-500 text-xs shrink-0 mt-0.5">⚠️</span>
+          <div className="flex-1">
+            <p className="text-xs text-red-700 font-medium">Échec de l&apos;upload</p>
+            <p className="text-xs text-red-600 mt-0.5">{uploadError}</p>
+          </div>
+          <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+        </div>
+      )}
 
       {/* Liste */}
       {docs.length === 0 ? (
@@ -276,7 +330,7 @@ export function DocumentList({
             const canAnalyse = ANALYSABLE.includes(doc.mime_type || '');
             return (
               <div key={doc.id} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
-                <span className="text-lg shrink-0">{doc.mime_type === 'application/pdf' ? '📄' : doc.mime_type?.startsWith('image/') ? '🖼' : '📎'}</span>
+                <span className="text-lg shrink-0">{doc.mime_type === 'application/pdf' ? '📄' : doc.mime_type?.startsWith('image/') ? '🖼' : ANALYSABLE.includes(doc.mime_type || '') ? '📊' : '📎'}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800 truncate font-medium">{doc.nom_fichier}</p>
                   <p className="text-xs text-gray-400">

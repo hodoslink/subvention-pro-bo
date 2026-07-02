@@ -35,6 +35,7 @@ export const formulairePublicSchema = z.object({
         nom_type:               safeText(200),
         nb_seances_ou_ateliers: numStr,
         tarif_unitaire:         numStr,
+        tarif_incertain:        z.boolean().optional(),
       })
     )
     .max(10)
@@ -81,6 +82,25 @@ export const formulairePublicSchema = z.object({
     )
     .max(10)
     .optional(),
+
+  // Drapeaux d'incertitude (true = le référent ne connaît pas la valeur)
+  taux_horaire_valorisation_incertain:        z.boolean().optional(),
+  cout_salarial_annuel_estime_incertain:      z.boolean().optional(),
+  locaux_valeur_estimee_incertain:            z.boolean().optional(),
+  location_salle_cout_annuel_incertain:       z.boolean().optional(),
+  assurance_cout_annuel_incertain:            z.boolean().optional(),
+  deplacements_frequence_mensuelle_incertain: z.boolean().optional(),
+  deplacements_cout_moyen_incertain:          z.boolean().optional(),
+  nb_adherents_payants_incertain:             z.boolean().optional(),
+  tarif_moyen_annuel_incertain:               z.boolean().optional(),
+
+  // Notes libres par section (questions / précisions du référent)
+  notes_section_1: safeText(500),
+  notes_section_2: safeText(500),
+  notes_section_3: safeText(500),
+  notes_section_4: safeText(500),
+  notes_section_5: safeText(500),
+  notes_section_6: safeText(500),
 });
 
 export type FormulairePublicData = z.infer<typeof formulairePublicSchema>;

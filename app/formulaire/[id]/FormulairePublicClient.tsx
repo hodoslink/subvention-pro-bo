@@ -27,6 +27,73 @@ function boolVal(details: Details, key: string): boolean {
   return details[key] === true;
 }
 
+function isIncertain(details: Details, key: string): boolean {
+  return details[`${key}_incertain`] === true;
+}
+
+function toggleIncertain(
+  key: string,
+  checked: boolean,
+  setDetails: React.Dispatch<React.SetStateAction<Details>>
+) {
+  setDetails(prev => ({
+    ...prev,
+    [`${key}_incertain`]: checked,
+    ...(checked ? { [key]: '' } : {}),
+  }));
+}
+
+function IncertainToggle({
+  fieldKey,
+  details,
+  setDetails,
+}: {
+  fieldKey: string;
+  details: Details;
+  setDetails: React.Dispatch<React.SetStateAction<Details>>;
+}) {
+  const checked = isIncertain(details, fieldKey);
+  return (
+    <label className="flex items-center gap-1.5 mt-1 cursor-pointer w-fit">
+      <input
+        type="checkbox"
+        className="rounded"
+        checked={checked}
+        onChange={e => toggleIncertain(fieldKey, e.target.checked, setDetails)}
+      />
+      <span className="text-xs text-gray-400 select-none">Je ne sais pas</span>
+    </label>
+  );
+}
+
+function SectionNote({
+  sectionKey,
+  details,
+  setField,
+}: {
+  sectionKey: string;
+  details: Details;
+  setField: (key: string, value: unknown) => void;
+}) {
+  const value = typeof details[sectionKey] === 'string'
+    ? (details[sectionKey] as string)
+    : '';
+  return (
+    <div className="pt-2 border-t border-gray-100">
+      <label className="block text-xs text-gray-400 mb-1">
+        💬 Une question ou précision pour votre conseiller ? <span className="italic">(facultatif)</span>
+      </label>
+      <textarea
+        className="field-textarea text-sm min-h-[60px]"
+        maxLength={500}
+        value={value}
+        onChange={e => setField(sectionKey, e.target.value)}
+        placeholder="ex : à confirmer avec notre trésorière, ou : nous avons deux assurances, laquelle indiquer ?"
+      />
+    </div>
+  );
+}
+
 export default function FormulairePublicClient({
   demandeId,
   associationNom,
@@ -74,7 +141,7 @@ export default function FormulairePublicClient({
     }
   }
 
-  const prestataires: Array<{ nom_type?: string; nb_seances_ou_ateliers?: string; tarif_unitaire?: string }> =
+  const prestataires: Array<{ nom_type?: string; nb_seances_ou_ateliers?: string; tarif_unitaire?: string; tarif_incertain?: boolean }> =
     Array.isArray(details.prestataires) ? (details.prestataires as typeof prestataires) : [];
 
   const achatsRecurrents: Array<{ nom_type?: string; quantite_annuelle?: string; cout_unitaire?: string }> =
@@ -191,11 +258,13 @@ export default function FormulairePublicClient({
               <input
                 type="text"
                 inputMode="decimal"
-                className="field-input"
+                disabled={isIncertain(details, 'taux_horaire_valorisation')}
+                className={`field-input${isIncertain(details, 'taux_horaire_valorisation') ? ' opacity-40' : ''}`}
                 value={numVal(details, 'taux_horaire_valorisation')}
                 onChange={e => setField('taux_horaire_valorisation', e.target.value)}
                 placeholder="ex: 11,65"
               />
+              <IncertainToggle fieldKey="taux_horaire_valorisation" details={details} setDetails={setDetails} />
               <p className="text-xs text-gray-400 mt-1">Le taux officiel de valorisation du bénévolat est de 11,65 €/h (CPIS 2024).</p>
             </div>
             <div>
@@ -214,14 +283,17 @@ export default function FormulairePublicClient({
               <input
                 type="text"
                 inputMode="decimal"
-                className="field-input"
+                disabled={isIncertain(details, 'cout_salarial_annuel_estime')}
+                className={`field-input${isIncertain(details, 'cout_salarial_annuel_estime') ? ' opacity-40' : ''}`}
                 value={numVal(details, 'cout_salarial_annuel_estime')}
                 onChange={e => setField('cout_salarial_annuel_estime', e.target.value)}
                 placeholder="ex: 35000"
               />
+              <IncertainToggle fieldKey="cout_salarial_annuel_estime" details={details} setDetails={setDetails} />
               <p className="text-xs text-gray-400 mt-1">Salaire brut annuel × 1,4 environ (charges patronales incluses). Ex : un salarié à 1 800 € brut/mois = environ 30 000 € de coût total.</p>
             </div>
           </div>
+          <SectionNote sectionKey="notes_section_1" details={details} setField={setField} />
         </section>
 
         {/* Section 2 : Intervenants extérieurs */}
@@ -271,8 +343,9 @@ export default function FormulairePublicClient({
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Tarif unitaire (€)</label>
                     <input
-                      className="field-input"
+                      className={`field-input${p.tarif_incertain ? ' opacity-40' : ''}`}
                       inputMode="decimal"
+                      disabled={!!p.tarif_incertain}
                       value={p.tarif_unitaire ?? ''}
                       onChange={e => {
                         const updated = [...prestataires];
@@ -281,6 +354,23 @@ export default function FormulairePublicClient({
                       }}
                       placeholder="ex: 150"
                     />
+                    <label className="flex items-center gap-1.5 mt-1 cursor-pointer w-fit">
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        checked={!!p.tarif_incertain}
+                        onChange={e => {
+                          const updated = [...prestataires];
+                          updated[i] = {
+                            ...updated[i],
+                            tarif_incertain: e.target.checked,
+                            ...(e.target.checked ? { tarif_unitaire: '' } : {}),
+                          };
+                          setField('prestataires', updated);
+                        }}
+                      />
+                      <span className="text-xs text-gray-400 select-none">Je ne sais pas</span>
+                    </label>
                     <p className="text-xs text-gray-400 mt-1">ex : 45–80 €/séance pour un animateur, 60–120 €/séance pour un professionnel de santé.</p>
                   </div>
                   <div className="flex items-end">
@@ -305,6 +395,7 @@ export default function FormulairePublicClient({
               )}
             </div>
           )}
+          <SectionNote sectionKey="notes_section_2" details={details} setField={setField} />
         </section>
 
         {/* Section 3 : Lieu et matériel */}
@@ -335,12 +426,14 @@ export default function FormulairePublicClient({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Valeur estimée annuelle (€)</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'locaux_valeur_estimee') ? ' opacity-40' : ''}`}
                   inputMode="decimal"
+                  disabled={isIncertain(details, 'locaux_valeur_estimee')}
                   value={numVal(details, 'locaux_valeur_estimee')}
                   onChange={e => setField('locaux_valeur_estimee', e.target.value)}
                   placeholder="ex: 3000"
                 />
+                <IncertainToggle fieldKey="locaux_valeur_estimee" details={details} setDetails={setDetails} />
                 <p className="text-xs text-gray-400 mt-1">Estimez à partir du loyer du marché local (ex : 10–20 €/m²/mois pour un local en Île-de-France, 6–12 €/m²/mois en province).</p>
               </div>
             </div>
@@ -428,12 +521,14 @@ export default function FormulairePublicClient({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Coût annuel location (€)</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'location_salle_cout_annuel') ? ' opacity-40' : ''}`}
                   inputMode="decimal"
+                  disabled={isIncertain(details, 'location_salle_cout_annuel')}
                   value={numVal(details, 'location_salle_cout_annuel')}
                   onChange={e => setField('location_salle_cout_annuel', e.target.value)}
                   placeholder="ex: 1200"
                 />
+                <IncertainToggle fieldKey="location_salle_cout_annuel" details={details} setDetails={setDetails} />
                 <p className="text-xs text-gray-400 mt-1">ex : 10–25 €/h pour une salle municipale, 25–60 €/h dans le secteur privé.</p>
               </div>
               <div>
@@ -447,6 +542,7 @@ export default function FormulairePublicClient({
               </div>
             </div>
           )}
+          <SectionNote sectionKey="notes_section_3" details={details} setField={setField} />
         </section>
 
         {/* Section 4 : Assurance et déplacements */}
@@ -467,12 +563,14 @@ export default function FormulairePublicClient({
             <div className="pl-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Coût annuel assurance (€)</label>
               <input
-                className="field-input w-48"
+                className={`field-input w-48${isIncertain(details, 'assurance_cout_annuel') ? ' opacity-40' : ''}`}
                 inputMode="decimal"
+                disabled={isIncertain(details, 'assurance_cout_annuel')}
                 value={numVal(details, 'assurance_cout_annuel')}
                 onChange={e => setField('assurance_cout_annuel', e.target.value)}
                 placeholder="ex: 400"
               />
+              <IncertainToggle fieldKey="assurance_cout_annuel" details={details} setDetails={setDetails} />
               <p className="text-xs text-gray-400 mt-1">ex : 150–400 €/an pour une RC associative couvrant des activités physiques ou de santé.</p>
             </div>
           )}
@@ -492,26 +590,31 @@ export default function FormulairePublicClient({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fréquence mensuelle estimée</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'deplacements_frequence_mensuelle') ? ' opacity-40' : ''}`}
                   inputMode="numeric"
+                  disabled={isIncertain(details, 'deplacements_frequence_mensuelle')}
                   value={numVal(details, 'deplacements_frequence_mensuelle')}
                   onChange={e => setField('deplacements_frequence_mensuelle', e.target.value)}
                   placeholder="ex: 4"
                 />
+                <IncertainToggle fieldKey="deplacements_frequence_mensuelle" details={details} setDetails={setDetails} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Coût moyen par déplacement (€)</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'deplacements_cout_moyen') ? ' opacity-40' : ''}`}
                   inputMode="decimal"
+                  disabled={isIncertain(details, 'deplacements_cout_moyen')}
                   value={numVal(details, 'deplacements_cout_moyen')}
                   onChange={e => setField('deplacements_cout_moyen', e.target.value)}
                   placeholder="ex: 25"
                 />
+                <IncertainToggle fieldKey="deplacements_cout_moyen" details={details} setDetails={setDetails} />
                 <p className="text-xs text-gray-400 mt-1">Barème kilométrique 2025 : 0,43 €/km (véhicule 5CV). Transport en commun : conservez les justificatifs.</p>
               </div>
             </div>
           )}
+          <SectionNote sectionKey="notes_section_4" details={details} setField={setField} />
         </section>
 
         {/* Section 5 : Participation des bénéficiaires */}
@@ -533,25 +636,30 @@ export default function FormulairePublicClient({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre d'adhérents payants</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'nb_adherents_payants') ? ' opacity-40' : ''}`}
                   inputMode="numeric"
+                  disabled={isIncertain(details, 'nb_adherents_payants')}
                   value={numVal(details, 'nb_adherents_payants')}
                   onChange={e => setField('nb_adherents_payants', e.target.value)}
                   placeholder="ex: 50"
                 />
+                <IncertainToggle fieldKey="nb_adherents_payants" details={details} setDetails={setDetails} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tarif moyen annuel (€)</label>
                 <input
-                  className="field-input"
+                  className={`field-input${isIncertain(details, 'tarif_moyen_annuel') ? ' opacity-40' : ''}`}
                   inputMode="decimal"
+                  disabled={isIncertain(details, 'tarif_moyen_annuel')}
                   value={numVal(details, 'tarif_moyen_annuel')}
                   onChange={e => setField('tarif_moyen_annuel', e.target.value)}
                   placeholder="ex: 30"
                 />
+                <IncertainToggle fieldKey="tarif_moyen_annuel" details={details} setDetails={setDetails} />
               </div>
             </div>
           )}
+          <SectionNote sectionKey="notes_section_5" details={details} setField={setField} />
         </section>
 
         {/* Section 6 : Autres financements */}
@@ -626,6 +734,7 @@ export default function FormulairePublicClient({
               </button>
             )}
           </div>
+          <SectionNote sectionKey="notes_section_6" details={details} setField={setField} />
         </section>
 
         {/* Submit */}
