@@ -5,7 +5,10 @@ import { syncBudgetAutoLignes } from '@/lib/budgetSync';
 import { z } from 'zod';
 
 const patchSchema = z.object({
-  statut: z.enum(['collecte', 'redaction', 'controle_compta', 'depose', 'decision_attente', 'accepte', 'refuse']).optional(),
+  statut: z.enum([
+    'collecte', 'redaction', 'controle_compta', 'depose', 'decision_attente',
+    'accepte', 'convention_signee', 'en_execution', 'bilan_final_soumis', 'clos', 'refuse',
+  ]).optional(),
   presta_redacteur: z.string().max(200).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
   date_depot: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),

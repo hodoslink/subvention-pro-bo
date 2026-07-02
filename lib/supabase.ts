@@ -8,6 +8,10 @@ export type Statut =
   | 'depose'
   | 'decision_attente'
   | 'accepte'
+  | 'convention_signee'
+  | 'en_execution'
+  | 'bilan_final_soumis'
+  | 'clos'
   | 'refuse';
 
 export type TypeDemande = 'premiere' | 'renouvellement';
@@ -311,6 +315,53 @@ export type PieceRequise = {
   statut: 'manquant' | 'fourni' | 'perime' | 'non_applicable';
   document_id?: string;
   date_limite_validite?: string;
+};
+
+export type BilanType = 'intermediaire' | 'final';
+export type BilanStatut = 'brouillon' | 'valide' | 'transmis';
+
+export type Bilan = {
+  id: string;
+  created_at: string;
+  demande_id: string;
+  type: BilanType;
+  numero_ordre: number;
+  date_debut: string;
+  date_fin: string;
+  statut: BilanStatut;
+  statut_action?: 'realise' | 'partiellement_realise' | 'non_realise' | null;
+  rapport_activite?: string;
+  commentaires_activite?: string;
+  bilan_qualitatif?: string;
+  commentaire_financier?: string;
+  signe_par?: string;
+  signe_le?: string;
+  user_id?: string;
+};
+
+export type BilanLigne = {
+  id: string;
+  created_at: string;
+  bilan_id: string;
+  budget_ligne_id?: string | null;
+  sens: 'charge' | 'produit';
+  compte: string;
+  sous_categorie?: string;
+  bailleur_detail?: string;
+  montant_prevu: number;
+  montant_reel?: number | null;
+  commentaire_ecart?: string;
+};
+
+export type BilanIndicateur = {
+  id: string;
+  created_at: string;
+  bilan_id: string;
+  indicateur: string;
+  resultat_attendu?: string;
+  resultat_obtenu?: string;
+  outil_evaluation?: string;
+  piste_amelioration?: string;
 };
 
 // Server-side client (service role — full access, use only in API routes)

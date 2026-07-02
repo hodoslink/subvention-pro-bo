@@ -1,33 +1,38 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { STATUTS, STATUTS_ACTIFS } from "@/lib/statuts";
+import { STATUTS, STATUTS_INSTRUCTION, STATUTS_EXECUTION } from "@/lib/statuts";
 import type { Demande, Statut } from "@/lib/supabase";
 import Link from "next/link";
 
-type DemandeCard = Demande & { associations: { nom: string; ville?: string } };
+type DemandeCard = Demande & { associations: { nom: string; ville?: string }; _bilansCount?: number };
 
 const STEP_META: Record<string, { hint: string; icon: string }> = {
-  collecte:         { icon: "📂", hint: "Rassemblez les documents" },
-  redaction:        { icon: "✏️", hint: "Rédigez la demande" },
-  controle_compta:  { icon: "🔢", hint: "Validez les chiffres avec le comptable" },
-  depose:           { icon: "📬", hint: "Dossier envoyé — surveillez votre messagerie" },
-  decision_attente: { icon: "⏳", hint: "Attendez la décision, relancez si besoin" },
+  collecte:           { icon: "📂", hint: "Rassemblez les documents" },
+  redaction:          { icon: "✏️", hint: "Rédigez la demande" },
+  controle_compta:    { icon: "🔢", hint: "Validez les chiffres" },
+  depose:             { icon: "📬", hint: "Surveillez votre messagerie" },
+  decision_attente:   { icon: "⏳", hint: "Relancez si besoin" },
+  convention_signee:  { icon: "📝", hint: "Démarrez l'exécution du projet" },
+  en_execution:       { icon: "▶️", hint: "Suivez l'avancement et préparez les bilans" },
+  bilan_final_soumis: { icon: "📤", hint: "En attente de validation du bailleur" },
 };
 
 const COL_COLORS: Record<string, { header: string; badge: string; active: string }> = {
-  collecte:         { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600",   active: "bg-slate-100 ring-2 ring-slate-300" },
-  redaction:        { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700",     active: "bg-blue-100 ring-2 ring-blue-300" },
-  controle_compta:  { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700",   active: "bg-amber-100 ring-2 ring-amber-300" },
-  depose:           { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700", active: "bg-purple-100 ring-2 ring-purple-300" },
-  decision_attente: { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700", active: "bg-orange-100 ring-2 ring-orange-300" },
+  collecte:           { header: "bg-slate-50 border-slate-200",   badge: "bg-slate-100 text-slate-600",   active: "bg-slate-100 ring-2 ring-slate-300" },
+  redaction:          { header: "bg-blue-50 border-blue-200",     badge: "bg-blue-100 text-blue-700",     active: "bg-blue-100 ring-2 ring-blue-300" },
+  controle_compta:    { header: "bg-amber-50 border-amber-200",   badge: "bg-amber-100 text-amber-700",   active: "bg-amber-100 ring-2 ring-amber-300" },
+  depose:             { header: "bg-purple-50 border-purple-200", badge: "bg-purple-100 text-purple-700", active: "bg-purple-100 ring-2 ring-purple-300" },
+  decision_attente:   { header: "bg-orange-50 border-orange-200", badge: "bg-orange-100 text-orange-700", active: "bg-orange-100 ring-2 ring-orange-300" },
+  convention_signee:  { header: "bg-teal-50 border-teal-200",     badge: "bg-teal-100 text-teal-700",     active: "bg-teal-100 ring-2 ring-teal-300" },
+  en_execution:       { header: "bg-cyan-50 border-cyan-200",     badge: "bg-cyan-100 text-cyan-700",     active: "bg-cyan-100 ring-2 ring-cyan-300" },
+  bilan_final_soumis: { header: "bg-indigo-50 border-indigo-200", badge: "bg-indigo-100 text-indigo-700", active: "bg-indigo-100 ring-2 ring-indigo-300" },
 };
 
 export default function SuiviPage() {
   const [demandes, setDemandes] = useState<DemandeCard[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Pointer-based DnD (no HTML5 drag API — cross-browser reliable)
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -120,9 +125,10 @@ export default function SuiviPage() {
   };
 
   const byStatut = (s: Statut) => demandes.filter(d => d.statut === s);
-  const enCours = demandes.filter(d => (STATUTS_ACTIFS as string[]).includes(d.statut));
+  const enInstruction = demandes.filter(d => (STATUTS_INSTRUCTION as string[]).includes(d.statut));
+  const enExecution = demandes.filter(d => (STATUTS_EXECUTION as string[]).includes(d.statut));
+  const terminees = demandes.filter(d => ['accepte', 'refuse', 'clos'].includes(d.statut));
   const acceptees = byStatut("accepte");
-  const refusees = byStatut("refuse");
   const totalMontantAccepte = acceptees.reduce((s, d) => s + (d.montant_obtenu ?? d.montant_demande ?? 0), 0);
 
   const ghostDemande = dragId ? demandes.find(d => d.id === dragId) : null;
@@ -146,7 +152,12 @@ export default function SuiviPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">Suivi des dossiers</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {enCours.length === 0 ? "Aucun dossier en cours" : `${enCours.length} dossier${enCours.length > 1 ? "s" : ""} en cours`}
+              {enInstruction.length === 0 ? "Aucun dossier en instruction" : `${enInstruction.length} dossier${enInstruction.length > 1 ? "s" : ""} en instruction`}
+              {enExecution.length > 0 && (
+                <span className="ml-2 text-teal-600 font-medium">
+                  · {enExecution.length} en exécution
+                </span>
+              )}
               {acceptees.length > 0 && (
                 <span className="ml-2 text-green-600 font-medium">
                   · {acceptees.length} accepté{acceptees.length > 1 ? "s" : ""}
@@ -159,12 +170,12 @@ export default function SuiviPage() {
         </div>
 
         {/* Barre progression */}
-        {demandes.length > 0 && (
+        {enInstruction.length > 0 && (
           <div className="px-6 py-3 bg-white border-b border-gray-100">
             <div className="flex items-center gap-1 max-w-2xl">
-              {STATUTS_ACTIFS.map((s, i) => {
+              {STATUTS_INSTRUCTION.map((s, i) => {
                 const count = byStatut(s as Statut).length;
-                const pct = enCours.length > 0 ? (count / enCours.length) * 100 : 0;
+                const pct = enInstruction.length > 0 ? (count / enInstruction.length) * 100 : 0;
                 const colors: Record<string, string> = { collecte: "bg-slate-400", redaction: "bg-blue-400", controle_compta: "bg-amber-400", depose: "bg-purple-400", decision_attente: "bg-orange-400" };
                 return (
                   <div key={s} className="flex items-center gap-1 flex-1">
@@ -185,10 +196,16 @@ export default function SuiviPage() {
           </div>
         )}
 
-        {/* Kanban */}
+        {/* Kanban — Instruction */}
         <div className="flex-1 overflow-x-auto">
-          <div className="flex gap-4 p-6 items-start min-w-max">
-            {STATUTS_ACTIFS.map(statut => {
+          {/* Section label */}
+          {(enInstruction.length > 0 || enExecution.length > 0) && (
+            <div className="px-6 pt-4 pb-1">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Instruction</span>
+            </div>
+          )}
+          <div className="flex gap-4 px-6 pb-4 items-start min-w-max">
+            {STATUTS_INSTRUCTION.map(statut => {
               const items = byStatut(statut as Statut);
               const s = STATUTS[statut as Statut];
               const meta = STEP_META[statut];
@@ -208,7 +225,6 @@ export default function SuiviPage() {
                     <p className="text-xs text-gray-500 leading-relaxed">{meta.hint}</p>
                   </div>
 
-                  {/* Drop zone */}
                   <div
                     ref={el => { columnRefs.current[statut] = el; }}
                     className={[
@@ -234,39 +250,94 @@ export default function SuiviPage() {
                 </div>
               );
             })}
-
-            {/* Clôturées */}
-            {(acceptees.length > 0 || refusees.length > 0) && (
-              <div className="w-72 flex-shrink-0 flex flex-col gap-3">
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">🏁</span>
-                      <span className="font-semibold text-sm text-gray-700">Clôturées</span>
-                    </div>
-                    <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">
-                      {acceptees.length + refusees.length}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400">Décision reçue — modifier via la fiche</p>
-                </div>
-                {[...acceptees, ...refusees].map(d => (
-                  <DossierCard
-                    key={d.id}
-                    demande={d}
-                    isFading={dragId === d.id && isDragging}
-                    onPointerDown={e => startDrag(e, d.id)}
-                  />
-                ))}
-              </div>
-            )}
           </div>
+
+          {/* Section — En cours d'exécution (non-draggable) */}
+          {enExecution.length > 0 && (
+            <>
+              <div className="px-6 pt-2 pb-1 border-t border-gray-200">
+                <span className="text-xs font-semibold text-teal-600 uppercase tracking-wider">En cours d&apos;exécution</span>
+              </div>
+              <div className="flex gap-4 px-6 pb-4 items-start min-w-max">
+                {STATUTS_EXECUTION.map(statut => {
+                  const items = byStatut(statut as Statut);
+                  const s = STATUTS[statut as Statut];
+                  const meta = STEP_META[statut];
+                  const col = COL_COLORS[statut];
+
+                  return (
+                    <div key={statut} className="w-72 flex-shrink-0 flex flex-col gap-3">
+                      <div className={`rounded-xl border p-3.5 ${col.header}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{meta.icon}</span>
+                            <span className="font-semibold text-sm text-gray-800">{s.label}</span>
+                          </div>
+                          <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${col.badge}`}>{items.length}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 leading-relaxed">{meta.hint}</p>
+                      </div>
+                      <div className="flex flex-col gap-3 min-h-24">
+                        {items.length === 0 ? (
+                          <div className="border-2 border-dashed rounded-xl p-6 text-center border-gray-200">
+                            <p className="text-xs text-gray-400">Aucun dossier</p>
+                          </div>
+                        ) : (
+                          items.map(d => (
+                            <DossierCard
+                              key={d.id}
+                              demande={d}
+                              isFading={false}
+                              draggable={false}
+                            />
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Résultats & clôture */}
+          {terminees.length > 0 && (
+            <div className="px-6 pt-2 pb-6 border-t border-gray-200">
+              <div className="pt-2 pb-1">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Résultats &amp; clôture</span>
+              </div>
+              <div className="flex gap-4 items-start flex-wrap">
+                <div className="w-72 flex-shrink-0 flex flex-col gap-3">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🏁</span>
+                        <span className="font-semibold text-sm text-gray-700">Résultats &amp; clôture</span>
+                      </div>
+                      <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">
+                        {terminees.length}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400">Décision reçue — modifier via la fiche</p>
+                  </div>
+                  {terminees.map(d => (
+                    <DossierCard
+                      key={d.id}
+                      demande={d}
+                      isFading={false}
+                      draggable={false}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {demandes.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center px-6">
               <div className="text-5xl">📭</div>
               <div>
-                <p className="font-semibold text-gray-700">Aucun dossier pour l'instant</p>
+                <p className="font-semibold text-gray-700">Aucun dossier pour l&apos;instant</p>
                 <p className="text-sm text-gray-400 mt-1 max-w-xs">Créez votre première demande de subvention pour démarrer le suivi.</p>
               </div>
               <Link href="/nouvelle-demande" className="btn btn-primary">+ Créer un dossier</Link>
@@ -275,7 +346,7 @@ export default function SuiviPage() {
         </div>
       </div>
 
-      {/* Ghost card — follows cursor during drag */}
+      {/* Ghost card */}
       {isDragging && ghostDemande && (
         <div
           style={{
@@ -311,24 +382,27 @@ function DossierCard({
   demande: d,
   isFading,
   onPointerDown,
+  draggable = true,
 }: {
   demande: DemandeCard;
   isFading: boolean;
-  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  draggable?: boolean;
 }) {
   const ageDays = Math.floor((Date.now() - new Date(d.created_at).getTime()) / 86400000);
   const ageLabel = ageDays === 0 ? "aujourd'hui" : ageDays === 1 ? "hier" : `${ageDays}j`;
   const isAccepte = d.statut === "accepte";
   const isRefuse = d.statut === "refuse";
+  const isClos = d.statut === "clos";
 
   return (
     <div
-      onPointerDown={onPointerDown}
-      style={{ cursor: 'grab', touchAction: 'none' }}
+      onPointerDown={draggable ? onPointerDown : undefined}
+      style={{ cursor: draggable ? 'grab' : 'default', touchAction: draggable ? 'none' : undefined }}
       className={[
         "bg-white rounded-xl border p-4 select-none transition-all duration-150",
         isFading ? "opacity-25 scale-95" : "hover:shadow-md hover:-translate-y-0.5",
-        isAccepte ? "border-green-200" : isRefuse ? "border-red-100 opacity-75" : "border-gray-200 hover:border-blue-200",
+        isAccepte ? "border-green-200" : isRefuse ? "border-red-100 opacity-75" : isClos ? "border-gray-200 opacity-75" : "border-gray-200 hover:border-blue-200",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
@@ -336,7 +410,8 @@ function DossierCard({
         <div className="flex items-center gap-1.5 shrink-0">
           {isAccepte && <span className="text-green-500 text-sm">✓</span>}
           {isRefuse && <span className="text-red-400 text-sm">✗</span>}
-          <span className="text-gray-300 text-sm">⠿</span>
+          {isClos && <span className="text-gray-400 text-sm">🔒</span>}
+          {draggable && <span className="text-gray-300 text-sm">⠿</span>}
         </div>
       </div>
 
@@ -359,6 +434,9 @@ function DossierCard({
               <span className="text-xs text-green-600 font-medium">→ {d.montant_obtenu.toLocaleString("fr-FR")} € obtenu</span>
             )}
           </div>
+        )}
+        {d._bilansCount != null && d._bilansCount > 0 && (
+          <span className="text-xs text-teal-600">📊 {d._bilansCount} bilan(s)</span>
         )}
       </div>
 

@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo, use, useRef, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatutBadge } from "@/components/StatutBadge";
-import { STATUTS, ALL_STATUTS } from "@/lib/statuts";
+import { STATUTS, ALL_STATUTS, STATUTS_AVEC_BILAN } from "@/lib/statuts";
 import type { Demande, Association, Statut, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB, BudgetEquilibre, TauxFinancement } from "@/lib/supabase";
 import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree } from "@/lib/budgetAuto";
 import Link from "next/link";
@@ -780,6 +780,17 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                   <button onClick={saveGestion} disabled={saving} className="btn btn-primary w-full justify-center">
                     {saving ? 'Enregistrement…' : saved ? '✓ Enregistré' : 'Enregistrer'}
                   </button>
+                  {demande && STATUTS_AVEC_BILAN.includes(demande.statut) && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-500">Bilans d&apos;exécution</span>
+                      <a
+                        href={`/demandes/${id}/bilans`}
+                        className="btn btn-secondary text-xs"
+                      >
+                        📊 Gérer les bilans →
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
 
