@@ -144,6 +144,10 @@ export function DocumentList({
   }
 
   async function upload(file: File) {
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('Fichier trop volumineux (max 20 Mo)');
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     try {
