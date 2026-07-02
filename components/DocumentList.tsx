@@ -98,7 +98,11 @@ export function DocumentList({
   const [uploadTypeDoc, setUploadTypeDoc] = useState('autre');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [analysing, setAnalysing] = useState<string | null>(null);
-  const [extracted, setExtracted] = useState<{ docId: string; champs: ExtractedFields } | null>(null);
+  const [extracted, setExtracted] = useState<{
+    docId: string;
+    champs: ExtractedFields;
+    avertissements?: string[];
+  } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
@@ -144,8 +148,8 @@ export function DocumentList({
   }
 
   async function upload(file: File) {
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadError('Fichier trop volumineux (max 20 Mo)');
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('Fichier trop volumineux (max 50 Mo)');
       return;
     }
     setUploading(true);
@@ -192,7 +196,7 @@ export function DocumentList({
       }
     });
     setSelected(keys);
-    setExtracted({ docId: doc.id, champs });
+    setExtracted({ docId: doc.id, champs, avertissements: json.avertissements });
     setAnalysing(null);
   }
 
@@ -300,7 +304,7 @@ export function DocumentList({
         >
           {uploading ? '⏳ Upload…' : '+ Ajouter un document'}
         </button>
-        <span className="text-xs text-gray-400">PDF, Excel, image — max 20 Mo</span>
+        <span className="text-xs text-gray-400">PDF, Excel, image — max 50 Mo</span>
         <input
           ref={fileRef}
           type="file"
@@ -377,6 +381,16 @@ export function DocumentList({
             <button onClick={() => setExtracted(null)} className="btn btn-ghost text-xs py-0.5 px-1.5">✕ Fermer</button>
           </div>
           <p className="text-xs text-blue-700">Cochez les champs à appliquer puis cliquez sur Appliquer.</p>
+
+          {extracted.avertissements && extracted.avertissements.length > 0 && (
+            <div className="space-y-1 mb-2">
+              {extracted.avertissements.map((a, i) => (
+                <p key={i} className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                  ⚠️ {a}
+                </p>
+              ))}
+            </div>
+          )}
 
           <div className="space-y-1 max-h-80 overflow-y-auto">
             {entityType === 'association'

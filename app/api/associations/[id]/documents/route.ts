@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const file = formData.get('file');
   if (!(file instanceof File)) return NextResponse.json({ error: 'Fichier manquant' }, { status: 400 });
-  if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'Fichier trop volumineux (max 20 Mo)' }, { status: 413 });
+  if (file.size > 50 * 1024 * 1024) return NextResponse.json({ error: 'Fichier trop volumineux (max 50 Mo)' }, { status: 413 });
 
   const typeDoc = (formData.get('type_doc') as string) || 'autre';
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
