@@ -2,26 +2,6 @@ import { getSupabaseServer } from './supabase';
 
 export const BUCKET = 'subvention-docs';
 
-// Types de fichiers acceptables pour l'analyse IA
-export const ANALYSABLE_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'application/vnd.ms-excel',                                           // .xls
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  // .xlsx
-];
-
-export function isAnalysable(mimeType: string | null | undefined): boolean {
-  if (!mimeType) return false;
-  return ANALYSABLE_TYPES.includes(mimeType);
-}
-
-export function isExcel(mimeType: string | null | undefined): boolean {
-  return mimeType === 'application/vnd.ms-excel' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-}
-
 async function ensureBucket(): Promise<void> {
   const supabase = getSupabaseServer();
   const { error } = await supabase.storage.createBucket(BUCKET, { public: false });

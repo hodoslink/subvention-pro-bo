@@ -76,12 +76,103 @@ const TYPE_DOC_OPTIONS = [
   { value: 'autre', label: 'Autre' },
 ];
 
-const ANALYSABLE = [
-  'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
+const EXCEL_MIMES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];
 const fmtSize = (b?: number) => !b ? '' : b > 1_000_000 ? `${(b / 1_000_000).toFixed(1)} Mo` : `${Math.round(b / 1_000)} Ko`;
+
+/**
+ * Normalise un JSON importé vers le format interne ExtractedDemande.
+ * Accepte deux formes :
+ *  - Forme A (plate) : les clés sont déjà au format ExtractedDemande
+ *  - Forme B (structurée) : blocs { demande, details, budget, bilan_anterieur }
+ */
+function normaliserImportJson(raw: unknown): ExtractedDemande {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Le fichier ne contient pas un objet JSON valide.');
+  }
+  const obj = raw as Record<string, unknown>;
+
+  // Détection Forme B : présence d'un bloc "demande" ou "budget" structuré
+  const estFormeB = typeof obj.demande === 'object' || typeof obj.budget === 'object';
+
+  if (!estFormeB) {
+    // Forme A — validation minimale : au moins une clé connue
+    const clesConnues = [...Object.keys(DEMANDE_LABELS), 'details_json', 'budget_lignes'];
+    const aUneCleConnue = Object.keys(obj).some(k => clesConnues.includes(k));
+    if (!aUneCleConnue) {
+      throw new Error(
+        'Format non reconnu. Le JSON doit contenir soit des champs de demande directs, soit des blocs "demande" / "details" / "budget".'
+      );
+    }
+    return obj as ExtractedDemande;
+  }
+
+  // Forme B → conversion
+  const demande = (obj.demande ?? {}) as Record<string, unknown>;
+  const details = (obj.details ?? {}) as Record<string, string>;
+  const budget = (obj.budget ?? {}) as {
+    charges?: Array<Record<string, unknown>>;
+    produits?: Array<Record<string, unknown>>;
+  };
+  const bilan = (obj.bilan_anterieur ?? {}) as Record<string, unknown>;
+
+  const budget_lignes = [
+    ...(budget.charges ?? []).map(l => ({
+      sens: 'charge',
+      compte: String(l.compte ?? '60'),
+      sous_categorie: l.sous_categorie as string | undefined,
+      montant: Number(l.montant ?? 0),
+      precisions: l.precisions as string | undefined,
+    })),
+    ...(budget.produits ?? []).map(l => ({
+      sens: 'produit',
+      compte: String(l.compte ?? '70'),
+      sous_categorie: l.sous_categorie as string | undefined,
+      bailleur_detail: l.bailleur_detail as string | undefined,
+      montant: Number(l.montant ?? 0),
+      statut_financement: l.statut_financement as string | undefined,
+    })),
+  ].filter(l => l.montant > 0);
+
+  return {
+    ...demande,
+    ...(Object.keys(details).length > 0 ? { details_json: details } : {}),
+    ...(budget_lignes.length > 0 ? { budget_lignes } : {}),
+    ...(bilan.montant_obtenu !== undefined ? { bilan_subvention_anterieure: Number(bilan.montant_obtenu) } : {}),
+    ...(bilan.nb_beneficiaires_reel !== undefined ? { bilan_nb_beneficiaires_reel: Number(bilan.nb_beneficiaires_reel) } : {}),
+    ...(bilan.description ? { bilan_activites: String(bilan.description) } : {}),
+  } as ExtractedDemande;
+}
+
+/**
+ * Validation de cohérence non bloquante sur le budget importé.
+ */
+function verifierCoherence(champs: ExtractedDemande): string[] {
+  const avertissements: string[] = [];
+  const lignes = champs.budget_lignes ?? [];
+  if (!lignes.length) return avertissements;
+
+  const t86 = lignes.filter(l => l.compte?.startsWith('86')).reduce((s, l) => s + (l.montant || 0), 0);
+  const t87 = lignes.filter(l => l.compte?.startsWith('87')).reduce((s, l) => s + (l.montant || 0), 0);
+  if (Math.abs(t86 - t87) > 0.01 && (t86 > 0 || t87 > 0)) {
+    avertissements.push(`Valorisations non symétriques : 86x = ${t86} €, 87x = ${t87} €.`);
+  }
+
+  const tc = lignes.filter(l => l.sens === 'charge').reduce((s, l) => s + (l.montant || 0), 0);
+  const tp = lignes.filter(l => l.sens === 'produit').reduce((s, l) => s + (l.montant || 0), 0);
+  if (tc > 0 && tp > 0 && Math.abs(tc - tp) / tc > 0.05) {
+    avertissements.push(`Budget déséquilibré : charges ${tc} € / produits ${tp} €.`);
+  }
+
+  if (champs.montant_demande && tp > 0 && champs.montant_demande > tp) {
+    avertissements.push(
+      `montant_demande (${champs.montant_demande} €) supérieur au total des produits — vérifiez qu'il s'agit bien du montant demandé à ce bailleur.`
+    );
+  }
+  return avertissements;
+}
 
 export function DocumentList({
   entityType,
@@ -97,7 +188,6 @@ export function DocumentList({
   const [uploading, setUploading] = useState(false);
   const [uploadTypeDoc, setUploadTypeDoc] = useState('autre');
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [analysing, setAnalysing] = useState<string | null>(null);
   const [extracted, setExtracted] = useState<{
     docId: string;
     champs: ExtractedFields;
@@ -107,7 +197,9 @@ export function DocumentList({
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
 
   const listUrl = entityType === 'association'
     ? `/api/associations/${entityId}/documents`
@@ -173,31 +265,44 @@ export function DocumentList({
     }
   }
 
-  async function analyseDoc(doc: DocRecord) {
-    setAnalysing(doc.id);
+  function handleImportJson(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError(null);
     setExtracted(null);
-    const r = await fetch(`${docBaseUrl(doc.id)}/analyser`, { method: 'POST' });
-    const json = await r.json();
-    if (!r.ok) {
-      alert(json.error || 'Erreur analyse');
-      setAnalysing(null);
-      return;
-    }
-    const champs: ExtractedFields = json.champs;
-    // Pré-sélectionner tous les champs trouvés
-    const keys = new Set<string>();
-    Object.keys(champs).forEach(k => {
-      if (k === 'details_json') {
-        Object.keys((champs as ExtractedDemande).details_json || {}).forEach(dk => keys.add(`details_json.${dk}`));
-      } else if (k !== 'budget_lignes') {
-        keys.add(k);
-      } else {
-        keys.add('budget_lignes');
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw = JSON.parse(String(reader.result));
+        const champs = normaliserImportJson(raw);
+
+        // Pré-sélection de tous les champs trouvés
+        const keys = new Set<string>();
+        Object.keys(champs).forEach(k => {
+          if (k === 'details_json') {
+            Object.keys(champs.details_json || {}).forEach(dk => keys.add(`details_json.${dk}`));
+          } else if (k === 'budget_lignes') {
+            keys.add('budget_lignes');
+          } else {
+            keys.add(k);
+          }
+        });
+        setSelected(keys);
+        setExtracted({
+          docId: 'import-json',            // pas lié à un document stocké
+          champs,
+          avertissements: verifierCoherence(champs),
+        });
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : 'JSON invalide.');
+      } finally {
+        // Reset l'input pour permettre de réimporter le même fichier
+        if (jsonInputRef.current) jsonInputRef.current.value = '';
       }
-    });
-    setSelected(keys);
-    setExtracted({ docId: doc.id, champs, avertissements: json.avertissements });
-    setAnalysing(null);
+    };
+    reader.onerror = () => setImportError('Impossible de lire le fichier.');
+    reader.readAsText(file);
   }
 
   async function applyFields() {
@@ -305,6 +410,27 @@ export function DocumentList({
           {uploading ? '⏳ Upload…' : '+ Ajouter un document'}
         </button>
         <span className="text-xs text-gray-400">PDF, Excel, image — max 50 Mo</span>
+        {entityType === 'demande' && (
+          <>
+            <input
+              ref={jsonInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleImportJson}
+            />
+            <button
+              onClick={() => jsonInputRef.current?.click()}
+              className="btn btn-secondary text-xs"
+              title="Importer un fichier JSON d'extraction et pré-remplir les champs de la demande"
+            >
+              📥 Importer un JSON
+            </button>
+          </>
+        )}
+        {importError && (
+          <p className="text-xs text-red-600 w-full">{importError}</p>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -335,10 +461,9 @@ export function DocumentList({
       ) : (
         <div className="space-y-2">
           {docs.map(doc => {
-            const canAnalyse = ANALYSABLE.includes(doc.mime_type || '');
             return (
               <div key={doc.id} className="flex items-center gap-2 py-2 border-b border-gray-100 last:border-0">
-                <span className="text-lg shrink-0">{doc.mime_type === 'application/pdf' ? '📄' : doc.mime_type?.startsWith('image/') ? '🖼' : ANALYSABLE.includes(doc.mime_type || '') ? '📊' : '📎'}</span>
+                <span className="text-lg shrink-0">{doc.mime_type === 'application/pdf' ? '📄' : doc.mime_type?.startsWith('image/') ? '🖼' : EXCEL_MIMES.includes(doc.mime_type || '') ? '📊' : '📎'}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800 truncate font-medium">{doc.nom_fichier}</p>
                   <p className="text-xs text-gray-400">
@@ -348,16 +473,6 @@ export function DocumentList({
                   </p>
                 </div>
                 <div className="shrink-0 flex gap-1">
-                  {canAnalyse && (
-                    <button
-                      onClick={() => analyseDoc(doc)}
-                      disabled={analysing === doc.id}
-                      className="btn btn-secondary text-xs py-0.5 px-2"
-                      title="Analyser avec l'IA et auto-compléter les champs"
-                    >
-                      {analysing === doc.id ? '⏳' : '🤖 Analyser'}
-                    </button>
-                  )}
                   <button onClick={() => openSignedUrl(doc.id)} className="btn btn-ghost text-xs py-0.5 px-1.5">↗ Ouvrir</button>
                   <button
                     onClick={() => deleteDoc(doc.id)}
@@ -373,11 +488,11 @@ export function DocumentList({
         </div>
       )}
 
-      {/* Panneau résultat extraction IA */}
+      {/* Panneau de prévisualisation des champs importés */}
       {extracted && (
         <div className="border border-blue-200 rounded-lg bg-blue-50 p-4 space-y-3 animate-in">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-blue-900">Champs extraits par l'IA</h3>
+            <h3 className="text-sm font-semibold text-blue-900">Champs à importer</h3>
             <button onClick={() => setExtracted(null)} className="btn btn-ghost text-xs py-0.5 px-1.5">✕ Fermer</button>
           </div>
           <p className="text-xs text-blue-700">Cochez les champs à appliquer puis cliquez sur Appliquer.</p>

@@ -10,7 +10,7 @@ export function DocumentsTab() {
 
       {/* Documents de la demande */}
       <SectionCard title="Documents de la demande">
-        <p className="text-xs text-gray-400 mb-3">Dossiers N-1, devis, formulaires bailleur… Cliquez sur « 🤖 Analyser » pour auto-compléter les champs.</p>
+        <p className="text-xs text-gray-400 mb-3">Dossiers N-1, devis, formulaires bailleur… Cliquez sur « 📥 Importer un JSON » pour pré-remplir les champs depuis une extraction.</p>
         <DocumentList entityType="demande" entityId={demande.id} onApplied={loadDemande} />
       </SectionCard>
 

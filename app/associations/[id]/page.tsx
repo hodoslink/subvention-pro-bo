@@ -437,7 +437,7 @@ export default function FicheAssociation({ params }: { params: Promise<{ id: str
         {/* Documents de l'association */}
         <div className="card space-y-3">
           <h2 className="text-sm font-semibold text-gray-700">Documents de l'association</h2>
-          <p className="text-xs text-gray-400">Statuts, comptes annuels, PV d'AG, RIB… Cliquez sur « 🤖 Analyser » pour auto-compléter la fiche.</p>
+          <p className="text-xs text-gray-400">Statuts, comptes annuels, PV d'AG, RIB…</p>
           <DocumentList entityType="association" entityId={id} onApplied={load} />
         </div>
 
