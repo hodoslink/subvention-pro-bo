@@ -63,6 +63,43 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json({ demande: data });
 }
 
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = getSupabaseServer();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from('demandes')
+    .select('id')
+    .eq('id', id)
+    .single();
+  if (fetchError || !existing) {
+    return NextResponse.json({ error: 'Demande introuvable' }, { status: 404 });
+  }
+
+  // Fichiers du storage + lignes documents (pas de FK cascade sur documents_demande)
+  const { data: docs } = await supabase
+    .from('documents_demande')
+    .select('storage_path')
+    .eq('demande_id', id);
+  const paths = (docs ?? []).map(d => d.storage_path).filter(Boolean);
+  if (paths.length > 0) {
+    await supabase.storage.from('subvention-docs').remove(paths);
+  }
+  await supabase.from('documents_demande').delete().eq('demande_id', id);
+
+  // Journal (cascade non garantie sur les anciennes bases)
+  await supabase.from('journal').delete().eq('demande_id', id);
+
+  // Détacher les demandes qui référencent celle-ci comme précédente (FK sans cascade)
+  await supabase.from('demandes').update({ demande_precedente_id: null }).eq('demande_precedente_id', id);
+
+  // budget_lignes, controles_qualite, pieces_requises, bilans → ON DELETE CASCADE
+  const { error } = await supabase.from('demandes').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return new NextResponse(null, { status: 204 });
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let body: unknown;

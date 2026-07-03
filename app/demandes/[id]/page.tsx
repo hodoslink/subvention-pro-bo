@@ -6,6 +6,7 @@ import { STATUTS, ALL_STATUTS, STATUTS_AVEC_BILAN } from "@/lib/statuts";
 import type { Demande, Association, Statut, BudgetV2, DetailsJson, Bailleur, BriefMission, BudgetLigneDB, BudgetEquilibre, TauxFinancement } from "@/lib/supabase";
 import { genererLignesAuto, SMIC_HORAIRE_BRUT_DEFAUT, type LigneAutoGeneree } from "@/lib/budgetAuto";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PageEditCtx } from './context';
 export { usePageCtx } from './context';
 import { CeQuiChangeEditor } from './components';
@@ -28,6 +29,11 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
   const [editMontantObtenu, setEditMontantObtenu] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  const router = useRouter();
+  const [confirmSuppression, setConfirmSuppression] = useState(false);
+  const [suppressionEnCours, setSuppressionEnCours] = useState(false);
+  const [suppressionError, setSuppressionError] = useState<string | null>(null);
 
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<FullDraft | null>(null);
@@ -384,6 +390,25 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const supprimerDemande = async () => {
+    setSuppressionEnCours(true);
+    setSuppressionError(null);
+    try {
+      const r = await fetch(`/api/demandes/${id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        let msg = `Erreur ${r.status}`;
+        try { const j = await r.json(); msg = j.error || msg; } catch { /* pas de JSON */ }
+        setSuppressionError(msg);
+        setSuppressionEnCours(false);
+        return;
+      }
+      router.push('/demandes');
+    } catch (e) {
+      setSuppressionError(e instanceof Error ? e.message : 'Erreur réseau');
+      setSuppressionEnCours(false);
+    }
   };
 
   const score = useMemo(() => {
@@ -791,6 +816,46 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                       </a>
                     </div>
                   )}
+
+                  {/* Zone dangereuse — suppression */}
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    {!confirmSuppression ? (
+                      <button
+                        onClick={() => setConfirmSuppression(true)}
+                        className="btn btn-ghost text-xs text-red-400 hover:text-red-600 hover:bg-red-50 w-full justify-center"
+                      >
+                        🗑 Supprimer la demande
+                      </button>
+                    ) : (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
+                        <p className="text-xs text-red-700 font-medium">
+                          Supprimer définitivement cette demande ?
+                        </p>
+                        <p className="text-xs text-red-600">
+                          Budget, bilans, documents, contrôles et journal seront supprimés. Cette action est irréversible.
+                        </p>
+                        {suppressionError && (
+                          <p className="text-xs text-red-700 bg-red-100 rounded px-2 py-1">{suppressionError}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={supprimerDemande}
+                            disabled={suppressionEnCours}
+                            className="btn text-xs bg-red-600 text-white hover:bg-red-700 flex-1 justify-center"
+                          >
+                            {suppressionEnCours ? 'Suppression…' : 'Oui, supprimer'}
+                          </button>
+                          <button
+                            onClick={() => { setConfirmSuppression(false); setSuppressionError(null); }}
+                            disabled={suppressionEnCours}
+                            className="btn btn-ghost text-xs flex-1 justify-center"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
