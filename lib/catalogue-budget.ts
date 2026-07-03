@@ -767,12 +767,12 @@ export function getCatalogueCharges(secteur: SecteurActivite): CatalogueCategori
 
 export const GROUPES_CHARGES = [
   { prefix: '60', label: 'Achats et fournitures', comptes: ['60', '602', '606'] },
-  { prefix: '61', label: 'Services extérieurs (locaux, assurance)', comptes: ['61', '613', '616'] },
+  { prefix: '61', label: 'Services extérieurs (locaux, assurance)', comptes: ['61', '613', '616', '618'] },
   { prefix: '62', label: 'Autres services ext. (honoraires, communication, déplacements)', comptes: ['62', '622', '623', '625', '627'] },
   { prefix: '63', label: 'Impôts et taxes', comptes: ['63', '631', '635'] },
   { prefix: '64', label: 'Charges de personnel', comptes: ['64', '641', '645', '648'] },
   { prefix: '65', label: 'Autres charges de gestion courante', comptes: ['65'] },
-  { prefix: '86', label: 'Emploi des contributions volontaires en nature', comptes: ['86', '861', '862', '863'] },
+  { prefix: '86', label: 'Emploi des contributions volontaires en nature', comptes: ['86', '861', '862', '863', '864'] },
 ];
 
 export const GROUPES_PRODUITS = [
