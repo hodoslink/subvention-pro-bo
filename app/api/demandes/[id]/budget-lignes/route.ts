@@ -8,6 +8,7 @@ const COMPTES_PRODUIT = ['70','73','74','75','76','77','78','79','87'];
 const postSchema = z.object({
   sens: z.enum(['charge', 'produit']),
   compte: z.string().min(2).max(4),
+  statut_financement: z.enum(['obtenu', 'demande', 'envisage']).optional().nullable(),
   libelle_compte: z.string().max(200).optional().nullable(),
   sous_categorie: z.string().max(500).optional().nullable(),
   bailleur_detail: z.string().max(300).optional().nullable(),
@@ -45,8 +46,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 422 });
   }
 
+  // Un compte détaillé (602, 622, 864…) est valide si sa classe (2 premiers
+  // chiffres) appartient au plan comptable du sens demandé.
   const comptes = parsed.data.sens === 'charge' ? COMPTES_CHARGE : COMPTES_PRODUIT;
-  if (!comptes.includes(parsed.data.compte)) {
+  if (!comptes.some(c => parsed.data.compte.startsWith(c))) {
     return NextResponse.json({ error: `Compte ${parsed.data.compte} invalide pour le sens ${parsed.data.sens}` }, { status: 422 });
   }
 
