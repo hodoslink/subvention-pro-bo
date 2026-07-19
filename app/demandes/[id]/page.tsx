@@ -415,6 +415,20 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
     if (!demande) return { filled: 0, total: 9, checks: [] as { label: string; ok: boolean }[] };
     const det = (demande.details_json || {}) as DetailsJson;
     const { depenses, recettes } = parseBudget(demande.budget_previsionnel_json);
+    // Budget : les lignes en base (budget_lignes) priment sur l'ancien
+    // budget_previsionnel_json — c'est là que vivent les budgets importés/saisis.
+    const chargesDB = budgetLignes.filter(l => l.sens === 'charge');
+    const produitsDB = budgetLignes.filter(l => l.sens === 'produit');
+    const budgetRenseigne = chargesDB.length > 0 || depenses.some(r => r.label);
+    const budgetEquilibreOk = chargesDB.length > 0
+      ? (budgetEquilibre
+          ? budgetEquilibre.est_equilibre
+          : produitsDB.length > 0 &&
+            Math.abs(
+              chargesDB.reduce((s, l) => s + (l.montant || 0), 0) -
+              produitsDB.reduce((s, l) => s + (l.montant || 0), 0)
+            ) < 0.01)
+      : depenses.some(r => r.label) && recettes.some(r => r.label) && Math.abs(sumRows(depenses) - sumRows(recettes)) < 0.01;
     const checks = [
       { label: 'Titre et bailleur', ok: !!(demande.titre_projet && demande.bailleur_nom) },
       { label: 'Objectif du projet', ok: !!demande.objectif_projet },
@@ -422,12 +436,12 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
       { label: 'Actions décrites', ok: !!det.description_actions },
       { label: 'Public bénéficiaire', ok: !!(demande.public_beneficiaire || det.beneficiaires_profil) },
       { label: 'Équipe mobilisée', ok: !!(det.nb_benevoles || det.nb_salaries || det.moyens_description) },
-      { label: 'Budget renseigné', ok: depenses.some(r => r.label) },
-      { label: 'Budget équilibré', ok: depenses.some(r => r.label) && recettes.some(r => r.label) && Math.abs(sumRows(depenses) - sumRows(recettes)) < 0.01 },
+      { label: 'Budget renseigné', ok: budgetRenseigne },
+      { label: 'Budget équilibré', ok: budgetEquilibreOk },
       { label: 'Indicateurs définis', ok: !!det.indicateurs_evaluation },
     ];
     return { filled: checks.filter(c => c.ok).length, total: 9, checks };
-  }, [demande]);
+  }, [demande, budgetLignes, budgetEquilibre]);
 
   if (loading) return <AppShell><div className="p-8 text-gray-400">Chargement…</div></AppShell>;
   if (!demande || !draft) return <AppShell><div className="p-8 text-red-500">Demande introuvable</div></AppShell>;
@@ -775,6 +789,9 @@ export default function FicheDemande({ params }: { params: Promise<{ id: string 
                 </Link>
                 <Link href={`/demandes/${id}/pieces`} className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 py-1 hover:underline">
                   📁 Pièces justificatives
+                </Link>
+                <Link href={`/demandes/${id}/export`} className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 py-1 hover:underline">
+                  📤 Exporter la demande (Word / PDF)
                 </Link>
               </div>
 
