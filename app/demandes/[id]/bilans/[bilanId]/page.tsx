@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { Bilan, BilanLigne, BilanIndicateur, PieceRequise, BeneficiaireParType, DateLieuRealisation } from '@/lib/supabase';
+import { isCVN } from '@/lib/budgetTotaux';
 
 type Tab = 'activite' | 'financier' | 'evaluation' | 'attestation';
 
@@ -40,9 +41,6 @@ function ecartPct(prevu: number, reel?: number | null) {
   if (reel == null || prevu === 0) return null;
   return ((reel - prevu) / prevu) * 100;
 }
-
-// CVN = contributions volontaires en nature (comptes 86 charges / 87 produits)
-const isCVN = (compte: string) => compte.startsWith('86') || compte.startsWith('87');
 
 type DemandeMin = {
   id: string;

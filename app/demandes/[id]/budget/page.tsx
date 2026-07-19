@@ -13,6 +13,7 @@ import {
   type CatalogueCategorie,
   type CatalogueLigne,
 } from "@/lib/catalogue-budget";
+import { ventilerCVN } from "@/lib/budgetTotaux";
 
 const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -79,8 +80,7 @@ function calculerAlertes(
   const produits = lignes.filter(l => l.sens === 'produit');
 
   // Valorisation bénévolat : 86x et 87x doivent être équilibrés
-  const total86 = charges.filter(l => l.compte.startsWith('86')).reduce((s, l) => s + l.montant, 0);
-  const total87 = produits.filter(l => l.compte.startsWith('87')).reduce((s, l) => s + l.montant, 0);
+  const { chargesCVN: total86, produitsCVN: total87 } = ventilerCVN(lignes, l => l.montant);
   if (total86 > 0 && Math.abs(total86 - total87) > 0.01) {
     alertes.push({
       id: 'desequilibre_86_87',
@@ -236,8 +236,15 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
 
   const charges = lignes.filter(l => l.sens === 'charge');
   const produits = lignes.filter(l => l.sens === 'produit');
-  const totalCharges = charges.reduce((s, l) => s + l.montant, 0);
-  const totalProduits = produits.reduce((s, l) => s + l.montant, 0);
+  // Ventilation hors CVN / dont CVN (86-87) — même logique que le module bilan
+  const {
+    chargesHorsCVN: totalChargesHorsCVN,
+    chargesCVN: totalChargesCVN,
+    produitsHorsCVN: totalProduitsHorsCVN,
+    produitsCVN: totalProduitsCVN,
+    totalCharges,
+    totalProduits,
+  } = ventilerCVN(lignes, l => l.montant);
   const ecart = totalCharges - totalProduits;
   const equilibreOk = Math.abs(ecart) < 0.01;
 
@@ -429,10 +436,20 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total charges</p>
             <p className="text-2xl font-bold text-gray-900">{fmt(totalCharges)} €</p>
+            {totalChargesCVN > 0 && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                {fmt(totalChargesHorsCVN)} € hors CVN · {fmt(totalChargesCVN)} € dont CVN
+              </p>
+            )}
           </div>
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total produits</p>
             <p className="text-2xl font-bold text-gray-900">{fmt(totalProduits)} €</p>
+            {totalProduitsCVN > 0 && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                {fmt(totalProduitsHorsCVN)} € hors CVN · {fmt(totalProduitsCVN)} € dont CVN
+              </p>
+            )}
           </div>
           <div className="flex-1">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Équilibre</p>
@@ -517,7 +534,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">
-              Charges <span className="text-gray-400 font-normal text-sm">({charges.length} ligne{charges.length !== 1 ? 's' : ''} · {fmt(totalCharges)} €)</span>
+              Charges <span className="text-gray-400 font-normal text-sm">({charges.length} ligne{charges.length !== 1 ? 's' : ''} · {fmt(totalCharges)} €{totalChargesCVN > 0 ? ` — dont ${fmt(totalChargesCVN)} € CVN` : ''})</span>
             </h2>
             <div className="flex gap-2">
               <button onClick={() => ouvrirCatalogue('charge')} className="btn btn-primary text-xs">📚 Catalogue</button>
@@ -573,7 +590,7 @@ export default function BudgetPage({ params }: { params: Promise<{ id: string }>
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">
-              Produits <span className="text-gray-400 font-normal text-sm">({produits.length} ligne{produits.length !== 1 ? 's' : ''} · {fmt(totalProduits)} €)</span>
+              Produits <span className="text-gray-400 font-normal text-sm">({produits.length} ligne{produits.length !== 1 ? 's' : ''} · {fmt(totalProduits)} €{totalProduitsCVN > 0 ? ` — dont ${fmt(totalProduitsCVN)} € CVN` : ''})</span>
             </h2>
             <div className="flex gap-2">
               <button onClick={() => ouvrirCatalogue('produit')} className="btn btn-primary text-xs">📚 Catalogue</button>

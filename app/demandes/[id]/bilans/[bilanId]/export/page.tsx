@@ -1,14 +1,13 @@
 "use client";
 import { useEffect, useState, use } from "react";
 import type { Bilan, BilanLigne, BilanIndicateur, Statut } from "@/lib/supabase";
+import { isCVN } from "@/lib/budgetTotaux";
 
 const eur = (n: number | null | undefined) =>
   n === null || n === undefined ? '—' : `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €`;
 
 const dateFr = (d: string | null | undefined) =>
   d ? new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('fr-FR') : '—';
-
-const isCVN = (compte: string) => compte.startsWith('86') || compte.startsWith('87');
 
 type DemandeExport = {
   id: string;
