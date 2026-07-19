@@ -275,6 +275,7 @@ export type BudgetLigneDB = {
   piece_justificative_url?: string;
   cle_generation?: string | null;       // null = ligne manuelle, valeur = ligne auto-générée
   statut_financement?: string | null;   // 'obtenu' | 'demande' | 'envisage' — lignes produit seulement
+  demande_liee_id?: string | null;      // référence pure vers une autre demande (jamais de propagation de montant)
 };
 
 export type BudgetEquilibre = {
@@ -367,6 +368,7 @@ export type BilanLigne = {
   cle_repartition?: string | null;
   est_valorisation_benevolat?: boolean;
   piece_justificative_url?: string | null;
+  demande_liee_id?: string | null;   // copié du budget au snapshot — propagation du montant réel
 };
 
 export type BilanIndicateur = {

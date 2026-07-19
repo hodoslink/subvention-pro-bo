@@ -8,6 +8,14 @@ type LignePlan = {
   bailleur_nom_libre: string;
   montant: string;
   statut_financement: 'obtenu' | 'demande' | 'envisage' | '';
+  demande_liee_id?: string | null;   // référence pure — ne modifie jamais montant/statut
+};
+
+type DemandeLiable = {
+  id: string;
+  titre_projet?: string | null;
+  bailleur_nom?: string | null;
+  statut: string;
 };
 
 const STATUT_LABEL: Record<string, { l: string; cls: string }> = {
@@ -17,7 +25,7 @@ const STATUT_LABEL: Record<string, { l: string; cls: string }> = {
 };
 
 function emptyLigne(): LignePlan {
-  return { bailleur_nom_libre: '', montant: '', statut_financement: '' };
+  return { bailleur_nom_libre: '', montant: '', statut_financement: '', demande_liee_id: null };
 }
 
 function lignesFromBudget(lignes: BudgetLigneDB[]): LignePlan[] {
@@ -29,6 +37,7 @@ function lignesFromBudget(lignes: BudgetLigneDB[]): LignePlan[] {
     bailleur_nom_libre: l.bailleur_detail ?? l.sous_categorie ?? '',
     montant: l.montant.toString(),
     statut_financement: (l.statut_financement as LignePlan['statut_financement']) || '',
+    demande_liee_id: l.demande_liee_id ?? null,
   }));
 }
 
@@ -36,11 +45,13 @@ const fmt = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 0 
 
 export function PlanFinancement({
   demandeId,
+  associationId,
   budgetLignes,
   equilibre,
   onSaved,
 }: {
   demandeId: string;
+  associationId?: string;
   budgetLignes: BudgetLigneDB[];
   equilibre: BudgetEquilibre | null;
   onSaved: () => void;
@@ -51,12 +62,25 @@ export function PlanFinancement({
   const [query, setQuery] = useState<Record<number, string>>({});
   const [suggestions, setSuggestions] = useState<Record<number, Bailleur[]>>({});
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [linkIdx, setLinkIdx] = useState<number | null>(null);
+  const [demandesAsso, setDemandesAsso] = useState<DemandeLiable[]>([]);
   const debounceRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // Reload lignes when budgetLignes prop changes from outside
   useEffect(() => {
     setLignes(lignesFromBudget(budgetLignes));
   }, [budgetLignes]);
+
+  // Demandes de la même association, liables comme référence (hors demande courante)
+  useEffect(() => {
+    if (!associationId) return;
+    fetch(`/api/demandes?association_id=${associationId}`)
+      .then(r => r.ok ? r.json() : { demandes: [] })
+      .then(({ demandes }) => {
+        setDemandesAsso(((demandes ?? []) as DemandeLiable[]).filter(d => d.id !== demandeId));
+      })
+      .catch(() => { /* liste indisponible — le lien reste optionnel */ });
+  }, [associationId, demandeId]);
 
   const searchBailleurs = useCallback((idx: number, q: string) => {
     clearTimeout(debounceRef.current[idx]);
@@ -104,6 +128,7 @@ export function PlanFinancement({
         est_charge_commune: false,
         est_valorisation_benevolat: false,
         precisions: null,
+        demande_liee_id: l.demande_liee_id ?? null,
       };
       if (l.id) {
         await fetch(`/api/budget-lignes/${l.id}`, {
@@ -228,11 +253,58 @@ export function PlanFinancement({
                 >×</button>
               </div>
 
-              {/* Badge statut sous la ligne */}
-              {l.statut_financement && STATUT_LABEL[l.statut_financement] && (
-                <span className={`ml-0 mt-0.5 inline-block text-xs px-1.5 py-0.5 rounded-full ${STATUT_LABEL[l.statut_financement].cls}`}>
-                  {STATUT_LABEL[l.statut_financement].l}
-                </span>
+              {/* Badges sous la ligne : statut + lien de référence */}
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                {l.statut_financement && STATUT_LABEL[l.statut_financement] && (
+                  <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full ${STATUT_LABEL[l.statut_financement].cls}`}>
+                    {STATUT_LABEL[l.statut_financement].l}
+                  </span>
+                )}
+                {demandesAsso.length > 0 && !l.demande_liee_id && (
+                  <button
+                    type="button"
+                    onClick={() => setLinkIdx(linkIdx === i ? null : i)}
+                    className="text-xs text-gray-400 hover:text-blue-600"
+                    title="Lier cette ligne à une autre demande de l'association (référence uniquement — ne modifie ni montant ni statut)"
+                  >
+                    🔗 Lier à une demande
+                  </button>
+                )}
+                {l.demande_liee_id && (() => {
+                  const dl = demandesAsso.find(d => d.id === l.demande_liee_id);
+                  return (
+                    <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5">
+                      <a href={`/demandes/${l.demande_liee_id}`} className="hover:underline">
+                        🔗 {dl ? (dl.titre_projet || dl.bailleur_nom || 'Demande liée') : 'Demande liée'}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setLigne(i, { demande_liee_id: null })}
+                        className="text-blue-400 hover:text-blue-700"
+                        title="Délier (ne modifie rien d'autre)"
+                      >✕</button>
+                    </span>
+                  );
+                })()}
+              </div>
+
+              {/* Menu de liaison */}
+              {linkIdx === i && (
+                <select
+                  className="field-input text-xs mt-1 w-full"
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) setLigne(i, { demande_liee_id: e.target.value });
+                    setLinkIdx(null);
+                  }}
+                >
+                  <option value="">— choisir une demande à lier —</option>
+                  {demandesAsso.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {(d.bailleur_nom || '—')} — {(d.titre_projet || '(sans titre)')} [{d.statut}]
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
           );

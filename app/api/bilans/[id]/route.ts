@@ -44,7 +44,21 @@ export async function GET(
 
   if (!bilan) return NextResponse.json({ error: 'Bilan introuvable' }, { status: 404 });
 
-  return NextResponse.json({ bilan, lignes: lignes ?? [], indicateurs: indicateurs ?? [] });
+  // Pour les lignes liées à une demande : nombre de bilan_lignes (tous bilans
+  // confondus) partageant la même demande liée — affiché comme badge côté UI.
+  const idsLies = [...new Set((lignes ?? []).map(l => l.demande_liee_id).filter(Boolean))] as string[];
+  const partages: Record<string, number> = {};
+  if (idsLies.length > 0) {
+    const { data: partagees } = await supabase
+      .from('bilan_lignes')
+      .select('demande_liee_id')
+      .in('demande_liee_id', idsLies);
+    for (const p of partagees ?? []) {
+      if (p.demande_liee_id) partages[p.demande_liee_id] = (partages[p.demande_liee_id] ?? 0) + 1;
+    }
+  }
+
+  return NextResponse.json({ bilan, lignes: lignes ?? [], indicateurs: indicateurs ?? [], partages });
 }
 
 export async function PATCH(

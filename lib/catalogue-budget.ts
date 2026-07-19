@@ -609,6 +609,24 @@ const CATALOGUE_COMMUN_CHARGES: CatalogueCategorie[] = [
         montant_placeholder: 'ex: 120',
         est_produit: false,
       },
+      {
+        id: 'sous_traitance_logiciel',
+        compte: '611',
+        sous_categorie: 'Sous-traitance — développement ou maintenance logicielle',
+        description_aide: 'Prestation externe de développement/maintenance d\'un outil numérique (site, appli, base de données)',
+        mode_calcul: 'montant_forfaitaire',
+        montant_placeholder: 'ex: 800',
+        est_produit: false,
+      },
+      {
+        id: 'frais_postaux_telecom',
+        compte: '626',
+        sous_categorie: 'Frais postaux et de télécommunications',
+        description_aide: 'Affranchissement, téléphonie, abonnement internet dédié à l\'association',
+        mode_calcul: 'montant_forfaitaire',
+        montant_placeholder: 'ex: 250',
+        est_produit: false,
+      },
     ],
   },
   {
@@ -767,8 +785,8 @@ export function getCatalogueCharges(secteur: SecteurActivite): CatalogueCategori
 
 export const GROUPES_CHARGES = [
   { prefix: '60', label: 'Achats et fournitures', comptes: ['60', '602', '606'] },
-  { prefix: '61', label: 'Services extérieurs (locaux, assurance)', comptes: ['61', '613', '616', '618'] },
-  { prefix: '62', label: 'Autres services ext. (honoraires, communication, déplacements)', comptes: ['62', '622', '623', '625', '627'] },
+  { prefix: '61', label: 'Services extérieurs (locaux, assurance)', comptes: ['61', '611', '613', '616', '618'] },
+  { prefix: '62', label: 'Autres services ext. (honoraires, communication, déplacements)', comptes: ['62', '622', '623', '625', '626', '627'] },
   { prefix: '63', label: 'Impôts et taxes', comptes: ['63', '631', '635'] },
   { prefix: '64', label: 'Charges de personnel', comptes: ['64', '641', '645', '648'] },
   { prefix: '65', label: 'Autres charges de gestion courante', comptes: ['65'] },

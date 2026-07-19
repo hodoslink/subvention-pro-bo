@@ -30,5 +30,17 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Propagation du montant réel : un même bailleur (demande liée) n'a qu'un
+  // seul montant réel — la dernière valeur saisie fait foi dans tous les
+  // bilans qui partagent cette demande liée. Ne touche jamais budget_lignes.
+  if (data.demande_liee_id && parsed.data.montant_reel !== undefined) {
+    await supabase
+      .from('bilan_lignes')
+      .update({ montant_reel: parsed.data.montant_reel })
+      .eq('demande_liee_id', data.demande_liee_id)
+      .neq('id', data.id);
+  }
+
   return NextResponse.json({ ligne: data });
 }

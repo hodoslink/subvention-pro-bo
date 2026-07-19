@@ -78,7 +78,7 @@ export async function POST(
 
   const { data: lignes } = await supabase
     .from('budget_lignes')
-    .select('id, sens, compte, sous_categorie, bailleur_detail, montant, est_charge_commune, cle_repartition, est_valorisation_benevolat, piece_justificative_url')
+    .select('id, sens, compte, sous_categorie, bailleur_detail, montant, est_charge_commune, cle_repartition, est_valorisation_benevolat, piece_justificative_url, demande_liee_id')
     .eq('demande_id', id);
 
   if (lignes && lignes.length > 0) {
@@ -96,6 +96,7 @@ export async function POST(
       cle_repartition: l.cle_repartition ?? null,
       est_valorisation_benevolat: l.est_valorisation_benevolat ?? false,
       piece_justificative_url: l.piece_justificative_url ?? null,
+      demande_liee_id: l.demande_liee_id ?? null,
     }));
     await supabase.from('bilan_lignes').insert(snapshot);
   }
@@ -106,8 +107,29 @@ export async function POST(
     .eq('id', id)
     .single();
 
+  // ── Pré-remplissage déterministe (copie de champs déjà saisis, zéro IA) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const indicateursTexte = (demande?.details_json as any)?.indicateurs_evaluation as string | undefined;
+  const det = (demande?.details_json as any) ?? {};
+
+  // Rapport d'activité — brouillon à partir de la description des actions prévues
+  const rapportActiviteInitial = [det.description_actions, det.description_besoins]
+    .filter(Boolean)
+    .join('\n\n');
+
+  // Bénéficiaires par type — une ligne de départ à partir du public visé,
+  // nombre laissé vide (donnée réelle, jamais présumée égale à l'estimation)
+  const beneficiairesInitial = det.public_beneficiaire
+    ? [{ type: det.public_beneficiaire, nombre: null }]
+    : [];
+
+  if (rapportActiviteInitial || beneficiairesInitial.length > 0) {
+    await supabase.from('bilans').update({
+      rapport_activite: rapportActiviteInitial || null,
+      beneficiaires_par_type: beneficiairesInitial.length ? beneficiairesInitial : null,
+    }).eq('id', bilan.id);
+  }
+
+  const indicateursTexte = det.indicateurs_evaluation as string | undefined;
   if (indicateursTexte?.trim()) {
     const lignesIndicateurs = indicateursTexte
       .split('\n')

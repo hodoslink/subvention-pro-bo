@@ -15,6 +15,7 @@ const patchSchema = z.object({
   cle_repartition: z.string().max(500).optional().nullable(),
   est_valorisation_benevolat: z.boolean().optional(),
   precisions: z.string().max(2000).optional().nullable(),
+  demande_liee_id: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

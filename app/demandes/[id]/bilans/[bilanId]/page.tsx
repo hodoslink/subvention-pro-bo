@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { Bilan, BilanLigne, BilanIndicateur, PieceRequise, BeneficiaireParType, DateLieuRealisation } from '@/lib/supabase';
 import { isCVN } from '@/lib/budgetTotaux';
+import { GROUPES_CHARGES, GROUPES_PRODUITS } from '@/lib/catalogue-budget';
 
 type Tab = 'activite' | 'financier' | 'evaluation' | 'attestation';
 
@@ -47,8 +48,16 @@ type DemandeMin = {
   titre_projet?: string;
   montant_demande?: number;
   montant_obtenu?: number;
+  nb_beneficiaires_estime?: number;
   plateforme_identifiant_dossier?: string;
   associations?: { nom: string; siret?: string; rna?: string };
+};
+
+type NouvelleLigneImprevue = {
+  sens: 'charge' | 'produit';
+  compte: string;
+  sous_categorie: string;
+  montant_reel: string;
 };
 
 export default function BilanDetailPage() {
@@ -63,6 +72,9 @@ export default function BilanDetailPage() {
   const [confirmTransmis, setConfirmTransmis] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statutError, setStatutError] = useState<string | null>(null);
+  const [partages, setPartages] = useState<Record<string, number>>({});
+  const [nouvelleLigne, setNouvelleLigne] = useState<NouvelleLigneImprevue | null>(null);
+  const [ajoutEnCours, setAjoutEnCours] = useState(false);
 
   // Local edits for narrative fields
   const [rapportActivite, setRapportActivite] = useState('');
@@ -106,6 +118,7 @@ export default function BilanDetailPage() {
       }
       setLignes(bilanData.lignes ?? []);
       setIndicateurs(bilanData.indicateurs ?? []);
+      setPartages(bilanData.partages ?? {});
       setPieces(piecesData.pieces ?? []);
       setDemande(demandeData.demande ?? null);
       setLoading(false);
@@ -185,6 +198,27 @@ export default function BilanDetailPage() {
     }
   }
 
+  async function ajouterLigneImprevue() {
+    if (!nouvelleLigne || !nouvelleLigne.compte) return;
+    setAjoutEnCours(true);
+    const res = await fetch(`/api/bilans/${bilanId}/lignes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sens: nouvelleLigne.sens,
+        compte: nouvelleLigne.compte,
+        sous_categorie: nouvelleLigne.sous_categorie || null,
+        montant_reel: parseFloat(nouvelleLigne.montant_reel.replace(',', '.')) || 0,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.ligne) {
+      setLignes(prev => [...prev, data.ligne]);
+      setNouvelleLigne(null);
+    }
+    setAjoutEnCours(false);
+  }
+
   async function marquerTransmis() {
     setSaving(true);
     const ok = await patchBilan({ statut: 'transmis' });
@@ -221,10 +255,14 @@ export default function BilanDetailPage() {
     : `Bilan intermédiaire n°${bilan.numero_ordre}`;
 
   const renderLigne = (ligne: BilanLigne) => {
-    const pct = ecartPct(ligne.montant_prevu, ligne.montant_reel);
+    // Ligne ajoutée directement au bilan (jamais budgétée) : l'écart de 100 %
+    // est normal et attendu — on ne le signale pas comme anomalie.
+    const nonBudgetee = ligne.budget_ligne_id == null && ligne.montant_prevu === 0;
+    const pct = nonBudgetee ? null : ecartPct(ligne.montant_prevu, ligne.montant_reel);
     const hasEcart = pct != null && Math.abs(pct) > 10;
     const isOver = pct != null && pct > 10;
     const isUnder = pct != null && pct < -10;
+    const nbPartages = ligne.demande_liee_id ? (partages[ligne.demande_liee_id] ?? 1) - 1 : 0;
     return (
       <div key={ligne.id} className="border border-gray-200 rounded-lg p-3">
         <div className="flex flex-wrap items-center gap-4">
@@ -236,6 +274,19 @@ export default function BilanDetailPage() {
             {ligne.est_charge_commune && ligne.cle_repartition && (
               <span className="ml-2 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded px-1.5 py-0.5">
                 Clé : {ligne.cle_repartition}
+              </span>
+            )}
+            {nonBudgetee && (
+              <span className="ml-2 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">
+                non budgétée
+              </span>
+            )}
+            {nbPartages > 0 && (
+              <span
+                className="ml-2 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5"
+                title="Le montant réel saisi ici est automatiquement repris dans les autres bilans liés à la même demande."
+              >
+                🔗 partagé avec {nbPartages} autre{nbPartages > 1 ? 's' : ''} bilan{nbPartages > 1 ? 's' : ''}
               </span>
             )}
           </span>
@@ -390,7 +441,14 @@ export default function BilanDetailPage() {
 
           {/* CERFA feuillet 1 : bénéficiaires par type de public */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Bénéficiaires par type de public</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Bénéficiaires par type de public
+              {demande?.nb_beneficiaires_estime != null && (
+                <span className="ml-2 text-xs text-gray-400 font-normal">
+                  cible prévisionnelle : {demande.nb_beneficiaires_estime}
+                </span>
+              )}
+            </label>
             <div className="space-y-2">
               {beneficiairesParType.map((b, i) => (
                 <div key={i} className="flex gap-2 items-center">
@@ -523,6 +581,80 @@ export default function BilanDetailPage() {
               </div>
             )
           ))}
+
+          {/* Ajout d'une ligne réelle imprévue (non budgétée à l'origine) */}
+          {bilan.statut !== 'transmis' && (
+            <div>
+              {!nouvelleLigne ? (
+                <button
+                  onClick={() => setNouvelleLigne({ sens: 'charge', compte: '', sous_categorie: '', montant_reel: '' })}
+                  className="px-4 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                >
+                  + Ajouter une dépense/recette imprévue
+                </button>
+              ) : (
+                <div className="border border-gray-300 rounded-lg p-4 space-y-3 bg-gray-50">
+                  <p className="text-sm font-medium text-gray-700">
+                    Nouvelle ligne réelle non budgétée
+                    <span className="text-xs text-gray-400 font-normal ml-2">(prévu = 0 € — l&apos;écart est normal)</span>
+                  </p>
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <select
+                      value={nouvelleLigne.sens}
+                      onChange={e => setNouvelleLigne({ ...nouvelleLigne, sens: e.target.value as 'charge' | 'produit', compte: '' })}
+                      className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+                    >
+                      <option value="charge">Dépense (charge)</option>
+                      <option value="produit">Recette (produit)</option>
+                    </select>
+                    <select
+                      value={nouvelleLigne.compte}
+                      onChange={e => setNouvelleLigne({ ...nouvelleLigne, compte: e.target.value })}
+                      className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+                    >
+                      <option value="">— compte —</option>
+                      {(nouvelleLigne.sens === 'charge' ? GROUPES_CHARGES : GROUPES_PRODUITS).map(g => (
+                        <optgroup key={g.prefix} label={g.label}>
+                          {g.comptes.map(c => <option key={c} value={c}>{c}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={nouvelleLigne.sous_categorie}
+                      onChange={e => setNouvelleLigne({ ...nouvelleLigne, sous_categorie: e.target.value })}
+                      placeholder="Libellé (ex : Frais postaux imprévus)"
+                      className="flex-1 min-w-48 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={nouvelleLigne.montant_reel}
+                      onChange={e => setNouvelleLigne({ ...nouvelleLigne, montant_reel: e.target.value })}
+                      placeholder="Montant réel €"
+                      className="w-32 border border-gray-300 rounded px-2 py-1.5 text-sm text-right"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={ajouterLigneImprevue}
+                      disabled={ajoutEnCours || !nouvelleLigne.compte || !nouvelleLigne.montant_reel}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {ajoutEnCours ? 'Ajout…' : 'Ajouter'}
+                    </button>
+                    <button
+                      onClick={() => setNouvelleLigne(null)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-white"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Synthèse CERFA : totaux hors CVN / dont CVN */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">

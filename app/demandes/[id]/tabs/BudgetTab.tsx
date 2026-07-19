@@ -155,6 +155,7 @@ export function BudgetTab() {
       <SectionCard title="Plan de financement — subventions sollicitées">
         <PlanFinancement
           demandeId={demande.id}
+          associationId={demande.association_id}
           budgetLignes={budgetLignes}
           equilibre={budgetEquilibre}
           onSaved={loadBudgetLignes}
