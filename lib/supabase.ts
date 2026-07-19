@@ -189,6 +189,7 @@ export type Association = {
   resume_edite_le?: string;
   secteur_activite?: string;
   annee_creation?: number;
+  date_inscription_alsace_moselle?: string;
 };
 
 export type Demande = {
@@ -315,10 +316,14 @@ export type PieceRequise = {
   statut: 'manquant' | 'fourni' | 'perime' | 'non_applicable';
   document_id?: string;
   date_limite_validite?: string;
+  bilan_id?: string | null;   // null = pièce de la demande ; renseigné = pièce d'un bilan
 };
 
 export type BilanType = 'intermediaire' | 'final';
 export type BilanStatut = 'brouillon' | 'valide' | 'transmis';
+
+export type BeneficiaireParType = { type: string; nombre: number | null };
+export type DateLieuRealisation = { date_debut: string; date_fin: string; lieu: string };
 
 export type Bilan = {
   id: string;
@@ -337,6 +342,13 @@ export type Bilan = {
   signe_par?: string;
   signe_le?: string;
   user_id?: string;
+  // CERFA 15059 — feuillet 1 (qualitatif structuré)
+  beneficiaires_par_type?: BeneficiaireParType[] | null;
+  dates_lieux_realisation?: DateLieuRealisation[] | null;
+  // CERFA 15059 — feuillet 3 (annexe)
+  regles_repartition_charges_indirectes?: string;
+  methode_valorisation_cvn?: string;
+  observations?: string;
 };
 
 export type BilanLigne = {
@@ -351,6 +363,10 @@ export type BilanLigne = {
   montant_prevu: number;
   montant_reel?: number | null;
   commentaire_ecart?: string;
+  est_charge_commune?: boolean;
+  cle_repartition?: string | null;
+  est_valorisation_benevolat?: boolean;
+  piece_justificative_url?: string | null;
 };
 
 export type BilanIndicateur = {

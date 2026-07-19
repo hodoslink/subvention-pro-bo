@@ -20,10 +20,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = getSupabaseServer();
 
+  // bilan_id null = checklist de la demande (les pièces des bilans ont leur propre route)
   let { data: pieces, error } = await supabase
     .from('pieces_requises')
     .select('*')
     .eq('demande_id', id)
+    .is('bilan_id', null)
     .order('created_at');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

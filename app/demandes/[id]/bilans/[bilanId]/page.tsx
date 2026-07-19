@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import type { Bilan, BilanLigne, BilanIndicateur } from '@/lib/supabase';
+import type { Bilan, BilanLigne, BilanIndicateur, PieceRequise, BeneficiaireParType, DateLieuRealisation } from '@/lib/supabase';
 
 type Tab = 'activite' | 'financier' | 'evaluation' | 'attestation';
 
@@ -41,12 +41,16 @@ function ecartPct(prevu: number, reel?: number | null) {
   return ((reel - prevu) / prevu) * 100;
 }
 
+// CVN = contributions volontaires en nature (comptes 86 charges / 87 produits)
+const isCVN = (compte: string) => compte.startsWith('86') || compte.startsWith('87');
+
 type DemandeMin = {
   id: string;
   titre_projet?: string;
   montant_demande?: number;
+  montant_obtenu?: number;
   plateforme_identifiant_dossier?: string;
-  associations?: { nom: string };
+  associations?: { nom: string; siret?: string; rna?: string };
 };
 
 export default function BilanDetailPage() {
@@ -55,10 +59,12 @@ export default function BilanDetailPage() {
   const [bilan, setBilan] = useState<Bilan | null>(null);
   const [lignes, setLignes] = useState<BilanLigne[]>([]);
   const [indicateurs, setIndicateurs] = useState<BilanIndicateur[]>([]);
+  const [pieces, setPieces] = useState<PieceRequise[]>([]);
   const [demande, setDemande] = useState<DemandeMin | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmTransmis, setConfirmTransmis] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [statutError, setStatutError] = useState<string | null>(null);
 
   // Local edits for narrative fields
   const [rapportActivite, setRapportActivite] = useState('');
@@ -67,15 +73,24 @@ export default function BilanDetailPage() {
   const [commentaireFinancier, setCommentaireFinancier] = useState('');
   const [signePar, setSignePar] = useState('');
   const [signeLe, setSigneLe] = useState('');
+  // CERFA feuillet 1 — listes structurées
+  const [beneficiairesParType, setBeneficiairesParType] = useState<BeneficiaireParType[]>([]);
+  const [datesLieux, setDatesLieux] = useState<DateLieuRealisation[]>([]);
+  // CERFA feuillet 3 — annexe
+  const [reglesRepartition, setReglesRepartition] = useState('');
+  const [methodeCvn, setMethodeCvn] = useState('');
+  const [observations, setObservations] = useState('');
 
   useEffect(() => {
     async function load() {
-      const [bilanRes, demandeRes] = await Promise.all([
+      const [bilanRes, demandeRes, piecesRes] = await Promise.all([
         fetch(`/api/bilans/${bilanId}`),
         fetch(`/api/demandes/${id}`),
+        fetch(`/api/bilans/${bilanId}/pieces-requises`),
       ]);
       const bilanData = await bilanRes.json();
       const demandeData = await demandeRes.json();
+      const piecesData = piecesRes.ok ? await piecesRes.json() : { pieces: [] };
       if (bilanData.bilan) {
         const b = bilanData.bilan as Bilan;
         setBilan(b);
@@ -85,9 +100,15 @@ export default function BilanDetailPage() {
         setCommentaireFinancier(b.commentaire_financier ?? '');
         setSignePar(b.signe_par ?? '');
         setSigneLe(b.signe_le ?? '');
+        setBeneficiairesParType(b.beneficiaires_par_type ?? []);
+        setDatesLieux(b.dates_lieux_realisation ?? []);
+        setReglesRepartition(b.regles_repartition_charges_indirectes ?? '');
+        setMethodeCvn(b.methode_valorisation_cvn ?? '');
+        setObservations(b.observations ?? '');
       }
       setLignes(bilanData.lignes ?? []);
       setIndicateurs(bilanData.indicateurs ?? []);
+      setPieces(piecesData.pieces ?? []);
       setDemande(demandeData.demande ?? null);
       setLoading(false);
     }
@@ -101,7 +122,12 @@ export default function BilanDetailPage() {
       body: JSON.stringify(patch),
     });
     const data = await res.json();
-    if (data.bilan) setBilan(data.bilan);
+    if (res.ok && data.bilan) {
+      setBilan(data.bilan);
+      setStatutError(null);
+    } else if (!res.ok && patch.statut) {
+      setStatutError(data.error || 'Changement de statut refusé');
+    }
     return res.ok;
   }, [bilanId]);
 
@@ -139,26 +165,129 @@ export default function BilanDetailPage() {
     if (data.indicateur) setIndicateurs(prev => [...prev, data.indicateur]);
   }
 
+  // ── Feuillet 1 : listes structurées (bénéficiaires / dates-lieux) ─────────
+  function saveBeneficiaires(next: BeneficiaireParType[]) {
+    setBeneficiairesParType(next);
+    patchBilan({ beneficiaires_par_type: next });
+  }
+  function saveDatesLieux(next: DateLieuRealisation[]) {
+    setDatesLieux(next);
+    patchBilan({ dates_lieux_realisation: next });
+  }
+
+  async function patchPiece(pieceId: string, statut: PieceRequise['statut']) {
+    const res = await fetch(`/api/pieces-requises/${pieceId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statut }),
+    });
+    const data = await res.json();
+    if (res.ok && data.piece) {
+      setPieces(prev => prev.map(p => p.id === pieceId ? { ...p, ...data.piece } : p));
+    }
+  }
+
   async function marquerTransmis() {
     setSaving(true);
-    await patchBilan({ statut: 'transmis' });
+    const ok = await patchBilan({ statut: 'transmis' });
     setSaving(false);
     setConfirmTransmis(false);
+    if (!ok) setTab('attestation');
   }
 
   if (loading || !bilan) return <div className="p-8 text-gray-500">Chargement…</div>;
 
-  const charges = lignes.filter(l => l.sens === 'charge');
-  const produits = lignes.filter(l => l.sens === 'produit');
-  const totalChargesPrevu = charges.reduce((s, l) => s + l.montant_prevu, 0);
-  const totalChargesReel = charges.reduce((s, l) => s + (l.montant_reel ?? 0), 0);
-  const totalProduitsPrevu = produits.reduce((s, l) => s + l.montant_prevu, 0);
-  const totalProduitsReel = produits.reduce((s, l) => s + (l.montant_reel ?? 0), 0);
-  const montantARS = demande?.montant_demande ?? 0;
+  // ── Feuillet 2 : séparation hors CVN / CVN et directes / indirectes ───────
+  const chargesHorsCVN = lignes.filter(l => l.sens === 'charge' && !isCVN(l.compte));
+  const produitsHorsCVN = lignes.filter(l => l.sens === 'produit' && !isCVN(l.compte));
+  const chargesCVN = lignes.filter(l => l.sens === 'charge' && isCVN(l.compte));   // compte 86
+  const produitsCVN = lignes.filter(l => l.sens === 'produit' && isCVN(l.compte)); // compte 87
+
+  const chargesDirectes = chargesHorsCVN.filter(l => !l.est_charge_commune);
+  const chargesIndirectes = chargesHorsCVN.filter(l => l.est_charge_commune);
+
+  const sum = (rows: BilanLigne[], champ: 'montant_prevu' | 'montant_reel') =>
+    rows.reduce((s, l) => s + (champ === 'montant_prevu' ? l.montant_prevu : (l.montant_reel ?? 0)), 0);
+
+  const totalChargesPrevu = sum(chargesHorsCVN, 'montant_prevu') + sum(chargesCVN, 'montant_prevu');
+  const totalChargesReel = sum(chargesHorsCVN, 'montant_reel') + sum(chargesCVN, 'montant_reel');
+  const totalProduitsPrevu = sum(produitsHorsCVN, 'montant_prevu') + sum(produitsCVN, 'montant_prevu');
+  const totalProduitsReel = sum(produitsHorsCVN, 'montant_reel') + sum(produitsCVN, 'montant_reel');
+
+  // Case obligatoire CERFA : « La subvention de X € représente Y % du total des produits »
+  const montantSubvention = demande?.montant_obtenu ?? demande?.montant_demande ?? 0;
+  const pctSubvention = totalProduitsReel > 0 ? (montantSubvention / totalProduitsReel) * 100 : null;
 
   const titreBilan = bilan.type === 'final'
     ? 'Bilan final'
     : `Bilan intermédiaire n°${bilan.numero_ordre}`;
+
+  const renderLigne = (ligne: BilanLigne) => {
+    const pct = ecartPct(ligne.montant_prevu, ligne.montant_reel);
+    const hasEcart = pct != null && Math.abs(pct) > 10;
+    const isOver = pct != null && pct > 10;
+    const isUnder = pct != null && pct < -10;
+    return (
+      <div key={ligne.id} className="border border-gray-200 rounded-lg p-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 shrink-0">
+            {ligne.compte}
+          </span>
+          <span className="text-sm text-gray-700 flex-1 min-w-32">
+            {ligne.sous_categorie || ligne.bailleur_detail || ligne.compte}
+            {ligne.est_charge_commune && ligne.cle_repartition && (
+              <span className="ml-2 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded px-1.5 py-0.5">
+                Clé : {ligne.cle_repartition}
+              </span>
+            )}
+          </span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-gray-500 whitespace-nowrap">
+              Prévu : <strong>{fmt(ligne.montant_prevu)}</strong>
+            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-400">Réel :</span>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                defaultValue={ligne.montant_reel ?? ''}
+                onBlur={e => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value);
+                  patchLigne(ligne.id, { montant_reel: v });
+                }}
+                className="w-28 border border-gray-300 rounded px-2 py-1 text-sm text-right"
+                placeholder="0"
+              />
+              <span className="text-xs text-gray-400">€</span>
+            </div>
+            {pct != null && (
+              <span className={`text-xs font-medium whitespace-nowrap ${
+                isOver ? 'text-orange-600' : isUnder ? 'text-blue-600' : 'text-gray-400'
+              }`}>
+                {pct > 0 ? '+' : ''}{pct.toFixed(1)} %
+              </span>
+            )}
+          </div>
+        </div>
+        {hasEcart && ligne.montant_reel != null && (
+          <div className={`mt-2 p-2 rounded text-xs ${isOver ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'}`}>
+            {isOver ? '⚠️' : 'ℹ️'} Expliquez cet écart :
+            <input
+              type="text"
+              defaultValue={ligne.commentaire_ecart ?? ''}
+              onBlur={e => patchLigne(ligne.id, { commentaire_ecart: e.target.value || null })}
+              placeholder="Explication de l'écart…"
+              className={`mt-1 w-full border rounded px-2 py-1 text-xs ${isOver ? 'border-orange-300 bg-orange-50' : 'border-blue-300 bg-blue-50'}`}
+            />
+          </div>
+        )}
+        {!hasEcart && ligne.commentaire_ecart && (
+          <p className="mt-1 text-xs text-gray-400 italic">{ligne.commentaire_ecart}</p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -176,6 +305,12 @@ export default function BilanDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href={`/demandes/${id}/bilans/${bilanId}/export`}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-1 text-gray-700 hover:bg-gray-50"
+            >
+              📤 Export CERFA
+            </Link>
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${BILAN_STATUT_COLORS[bilan.statut] ?? ''}`}>
               {BILAN_STATUT_LABELS[bilan.statut] ?? bilan.statut}
             </span>
@@ -192,6 +327,13 @@ export default function BilanDetailPage() {
             )}
           </div>
         </div>
+        {statutError && (
+          <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 flex items-start gap-2">
+            <span>⚠️</span>
+            <span className="flex-1">{statutError}</span>
+            <button onClick={() => setStatutError(null)} className="text-red-400 hover:text-red-600">✕</button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -211,7 +353,7 @@ export default function BilanDetailPage() {
         ))}
       </div>
 
-      {/* Tab: Activité */}
+      {/* Tab: Activité (feuillet 1 CERFA) */}
       {tab === 'activite' && (
         <div className="space-y-6">
           {/* Statut de réalisation */}
@@ -248,6 +390,94 @@ export default function BilanDetailPage() {
             />
           </div>
 
+          {/* CERFA feuillet 1 : bénéficiaires par type de public */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Bénéficiaires par type de public</label>
+            <div className="space-y-2">
+              {beneficiairesParType.map((b, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={b.type}
+                    onChange={e => setBeneficiairesParType(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}
+                    onBlur={() => saveBeneficiaires(beneficiairesParType)}
+                    placeholder="Type de public (ex : Personnes en situation d'obésité)"
+                    className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    value={b.nombre ?? ''}
+                    onChange={e => setBeneficiairesParType(prev => prev.map((x, j) => j === i ? { ...x, nombre: e.target.value === '' ? null : parseInt(e.target.value, 10) } : x))}
+                    onBlur={() => saveBeneficiaires(beneficiairesParType)}
+                    placeholder="Nombre"
+                    className="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm text-right"
+                  />
+                  <button
+                    onClick={() => saveBeneficiaires(beneficiairesParType.filter((_, j) => j !== i))}
+                    className="text-red-400 hover:text-red-600 text-sm px-1"
+                    title="Retirer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setBeneficiairesParType(prev => [...prev, { type: '', nombre: null }])}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+              >
+                + Ajouter un type de public
+              </button>
+            </div>
+          </div>
+
+          {/* CERFA feuillet 1 : dates et lieux de réalisation */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Dates et lieux de réalisation</label>
+            <div className="space-y-2">
+              {datesLieux.map((d, i) => (
+                <div key={i} className="flex gap-2 items-center flex-wrap">
+                  <input
+                    type="date"
+                    value={d.date_debut}
+                    onChange={e => setDatesLieux(prev => prev.map((x, j) => j === i ? { ...x, date_debut: e.target.value } : x))}
+                    onBlur={() => saveDatesLieux(datesLieux)}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  />
+                  <span className="text-gray-400 text-sm">→</span>
+                  <input
+                    type="date"
+                    value={d.date_fin}
+                    onChange={e => setDatesLieux(prev => prev.map((x, j) => j === i ? { ...x, date_fin: e.target.value } : x))}
+                    onBlur={() => saveDatesLieux(datesLieux)}
+                    className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={d.lieu}
+                    onChange={e => setDatesLieux(prev => prev.map((x, j) => j === i ? { ...x, lieu: e.target.value } : x))}
+                    onBlur={() => saveDatesLieux(datesLieux)}
+                    placeholder="Lieu (ex : Clichy-sous-Bois)"
+                    className="flex-1 min-w-40 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    onClick={() => saveDatesLieux(datesLieux.filter((_, j) => j !== i))}
+                    className="text-red-400 hover:text-red-600 text-sm px-1"
+                    title="Retirer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setDatesLieux(prev => [...prev, { date_debut: bilan.date_debut, date_fin: bilan.date_fin, lieu: '' }])}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+              >
+                + Ajouter une période / un lieu
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Commentaires et difficultés rencontrées</label>
             <textarea
@@ -274,113 +504,83 @@ export default function BilanDetailPage() {
         </div>
       )}
 
-      {/* Tab: Financier */}
+      {/* Tab: Financier (feuillet 2 CERFA) */}
       {tab === 'financier' && (
         <div className="space-y-8">
           {[
-            { label: 'Charges', rows: charges },
-            { label: 'Produits', rows: produits },
-          ].map(({ label, rows }) => (
-            <div key={label}>
-              <h3 className="text-base font-semibold text-gray-800 mb-3">{label}</h3>
-              {rows.length === 0 ? (
-                <p className="text-sm text-gray-400">Aucune ligne</p>
-              ) : (
-                <div className="space-y-2">
-                  {rows.map(ligne => {
-                    const pct = ecartPct(ligne.montant_prevu, ligne.montant_reel);
-                    const hasEcart = pct != null && Math.abs(pct) > 10;
-                    const isOver = pct != null && pct > 10;
-                    const isUnder = pct != null && pct < -10;
-                    return (
-                      <div key={ligne.id} className="border border-gray-200 rounded-lg p-3">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 shrink-0">
-                            {ligne.compte}
-                          </span>
-                          <span className="text-sm text-gray-700 flex-1 min-w-32">
-                            {ligne.sous_categorie || ligne.bailleur_detail || ligne.compte}
-                          </span>
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-sm text-gray-500 whitespace-nowrap">
-                              Prévu : <strong>{fmt(ligne.montant_prevu)}</strong>
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-gray-400">Réel :</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                defaultValue={ligne.montant_reel ?? ''}
-                                onBlur={e => {
-                                  const v = e.target.value === '' ? null : parseFloat(e.target.value);
-                                  patchLigne(ligne.id, { montant_reel: v });
-                                }}
-                                className="w-28 border border-gray-300 rounded px-2 py-1 text-sm text-right"
-                                placeholder="0"
-                              />
-                              <span className="text-xs text-gray-400">€</span>
-                            </div>
-                            {pct != null && (
-                              <span className={`text-xs font-medium whitespace-nowrap ${
-                                isOver ? 'text-orange-600' : isUnder ? 'text-blue-600' : 'text-gray-400'
-                              }`}>
-                                {pct > 0 ? '+' : ''}{pct.toFixed(1)} %
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {hasEcart && ligne.montant_reel != null && (
-                          <div className={`mt-2 p-2 rounded text-xs ${isOver ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'}`}>
-                            {isOver ? '⚠️' : 'ℹ️'} Expliquez cet écart :
-                            <input
-                              type="text"
-                              defaultValue={ligne.commentaire_ecart ?? ''}
-                              onBlur={e => patchLigne(ligne.id, { commentaire_ecart: e.target.value || null })}
-                              placeholder="Explication de l'écart…"
-                              className={`mt-1 w-full border rounded px-2 py-1 text-xs ${isOver ? 'border-orange-300 bg-orange-50' : 'border-blue-300 bg-blue-50'}`}
-                            />
-                          </div>
-                        )}
-                        {!hasEcart && ligne.commentaire_ecart && (
-                          <p className="mt-1 text-xs text-gray-400 italic">{ligne.commentaire_ecart}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            { label: 'Charges directes affectées à l\'action', rows: chargesDirectes, vide: 'Aucune charge directe' },
+            { label: 'Charges indirectes réparties affectées à l\'action', rows: chargesIndirectes, vide: null },
+            { label: 'Contributions volontaires en nature — emploi (86)', rows: chargesCVN, vide: null },
+            { label: 'Produits affectés à l\'action', rows: produitsHorsCVN, vide: 'Aucune ligne de produit' },
+            { label: 'Contributions volontaires en nature — ressources (87)', rows: produitsCVN, vide: null },
+          ].map(({ label, rows, vide }) => (
+            (rows.length > 0 || vide) && (
+              <div key={label}>
+                <h3 className="text-base font-semibold text-gray-800 mb-3">{label}</h3>
+                {rows.length === 0 ? (
+                  <p className="text-sm text-gray-400">{vide}</p>
+                ) : (
+                  <div className="space-y-2">{rows.map(renderLigne)}</div>
+                )}
+              </div>
+            )
           ))}
 
-          {/* Synthèse */}
+          {/* Synthèse CERFA : totaux hors CVN / dont CVN */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
             <div className="grid grid-cols-3 gap-2 font-medium text-gray-600 text-xs uppercase tracking-wide mb-2">
               <span></span><span>Prévu</span><span>Réel</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <span className="text-gray-700">Total charges</span>
+              <span className="text-gray-700 font-medium">Total des charges HORS CVN</span>
+              <span>{fmt(sum(chargesHorsCVN, 'montant_prevu'))}</span>
+              <span>{fmt(sum(chargesHorsCVN, 'montant_reel'))}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <span className="text-gray-500 pl-3">dont charges directes</span>
+              <span className="text-gray-500">{fmt(sum(chargesDirectes, 'montant_prevu'))}</span>
+              <span className="text-gray-500">{fmt(sum(chargesDirectes, 'montant_reel'))}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <span className="text-gray-500 pl-3">dont charges indirectes réparties</span>
+              <span className="text-gray-500">{fmt(sum(chargesIndirectes, 'montant_prevu'))}</span>
+              <span className="text-gray-500">{fmt(sum(chargesIndirectes, 'montant_reel'))}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <span className="text-gray-700 font-medium">Total DONT CVN (86)</span>
+              <span>{fmt(sum(chargesCVN, 'montant_prevu'))}</span>
+              <span>{fmt(sum(chargesCVN, 'montant_reel'))}</span>
+            </div>
+            <hr className="my-1 border-gray-200" />
+            <div className="grid grid-cols-3 gap-2">
+              <span className="text-gray-700 font-medium">Total des produits HORS CVN</span>
+              <span>{fmt(sum(produitsHorsCVN, 'montant_prevu'))}</span>
+              <span>{fmt(sum(produitsHorsCVN, 'montant_reel'))}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <span className="text-gray-700 font-medium">Total DONT CVN (87)</span>
+              <span>{fmt(sum(produitsCVN, 'montant_prevu'))}</span>
+              <span>{fmt(sum(produitsCVN, 'montant_reel'))}</span>
+            </div>
+            <hr className="my-1 border-gray-200" />
+            <div className="grid grid-cols-3 gap-2 font-semibold">
+              <span className="text-gray-800">TOTAL GÉNÉRAL CHARGES</span>
               <span>{fmt(totalChargesPrevu)}</span>
               <span>{fmt(totalChargesReel)}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <span className="text-gray-700">Total produits</span>
+            <div className="grid grid-cols-3 gap-2 font-semibold">
+              <span className="text-gray-800">TOTAL GÉNÉRAL PRODUITS</span>
               <span>{fmt(totalProduitsPrevu)}</span>
               <span>{fmt(totalProduitsReel)}</span>
             </div>
-            <hr className="my-2 border-gray-200" />
-            <div className="grid grid-cols-2 gap-2 text-gray-600">
-              <span>Crédit notifié</span>
-              <span className="font-medium">{fmt(montantARS)}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-gray-600">
-              <span>Crédits consommés (ce bilan)</span>
-              <span className="font-medium">{fmt(totalChargesReel)}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-gray-600">
-              <span>Autofinancement réalisé</span>
-              <span className="font-medium">{fmt(totalProduitsReel - totalChargesReel < 0 ? 0 : totalProduitsReel - totalChargesReel)}</span>
-            </div>
+          </div>
+
+          {/* Case obligatoire CERFA : ratio subvention / produits */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+            La subvention de <strong>{fmt(montantSubvention)}</strong>
+            {pctSubvention != null
+              ? <> représente <strong>{pctSubvention.toFixed(1)} %</strong> du total des produits réalisés.</>
+              : <> — le pourcentage du total des produits sera calculé quand des montants réels seront saisis.</>}
           </div>
 
           <div>
@@ -393,6 +593,49 @@ export default function BilanDetailPage() {
               placeholder="Explication globale des écarts, contexte budgétaire…"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y"
             />
+          </div>
+
+          {/* Annexe CERFA (feuillet 3) */}
+          <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="text-base font-semibold text-gray-800">Annexe (feuillet 3 du CERFA)</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Règles de répartition des charges indirectes</label>
+              {!reglesRepartition && chargesIndirectes.some(l => l.cle_repartition) && (
+                <p className="text-xs text-gray-400 mb-1">
+                  Clés saisies sur les lignes : {[...new Set(chargesIndirectes.map(l => l.cle_repartition).filter(Boolean))].join(' ; ')}
+                </p>
+              )}
+              <textarea
+                value={reglesRepartition}
+                onChange={e => setReglesRepartition(e.target.value)}
+                onBlur={() => patchBilan({ regles_repartition_charges_indirectes: reglesRepartition || undefined })}
+                rows={3}
+                placeholder="Ex : quote-part du loyer et des salaires administratifs affectée à l'action au prorata du temps passé (20 % ETP)."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Méthode de valorisation des contributions volontaires en nature</label>
+              <textarea
+                value={methodeCvn}
+                onChange={e => setMethodeCvn(e.target.value)}
+                onBlur={() => patchBilan({ methode_valorisation_cvn: methodeCvn || undefined })}
+                rows={3}
+                placeholder="Ex : bénévolat valorisé au SMIC horaire brut × nombre d'heures effectuées ; locaux valorisés à la valeur locative communiquée par la mairie."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Observations sur le compte rendu financier</label>
+              <textarea
+                value={observations}
+                onChange={e => setObservations(e.target.value)}
+                onBlur={() => patchBilan({ observations: observations || undefined })}
+                rows={3}
+                placeholder="Observations à formuler sur le compte rendu financier de l'opération subventionnée."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -466,6 +709,28 @@ export default function BilanDetailPage() {
       {/* Tab: Attestation */}
       {tab === 'attestation' && (
         <div className="space-y-6">
+          {/* Pièces à joindre au compte-rendu (CERFA 15059) */}
+          <div className="border border-gray-200 rounded-lg p-4 space-y-2">
+            <h3 className="text-base font-semibold text-gray-800 mb-1">Pièces à joindre au compte-rendu</h3>
+            <p className="text-xs text-gray-400 mb-2">
+              Les pièces obligatoires doivent être fournies avant de valider le bilan.
+            </p>
+            {pieces.map(p => (
+              <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={p.statut === 'fourni'}
+                  onChange={e => patchPiece(p.id, e.target.checked ? 'fourni' : 'manquant')}
+                />
+                <span className={p.statut === 'fourni' ? 'text-gray-700' : 'text-gray-500'}>
+                  {p.libelle}
+                  {p.obligatoire && <span className="text-red-400 ml-1">*</span>}
+                </span>
+              </label>
+            ))}
+            {pieces.length === 0 && <p className="text-sm text-gray-400">Chargement de la checklist…</p>}
+          </div>
+
           <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-6 font-mono text-sm space-y-2">
             <div className="text-center font-bold text-base mb-4">
               BILAN D&apos;EXÉCUTION : {titreBilan.toUpperCase()}
@@ -481,15 +746,11 @@ export default function BilanDetailPage() {
             <div className="space-y-1">
               <div className="flex justify-between">
                 <span>Crédit notifié :</span>
-                <span className="font-medium">{fmt(montantARS)}</span>
+                <span className="font-medium">{fmt(montantSubvention)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Crédits consommés (ce bilan) :</span>
                 <span className="font-medium">{fmt(totalChargesReel)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Bilans précédents (cumulé) :</span>
-                <span className="font-medium">0 €</span>
               </div>
               <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
                 <span>Total crédits consommés :</span>
@@ -497,12 +758,18 @@ export default function BilanDetailPage() {
               </div>
               <div className="flex justify-between">
                 <span>Crédits non consommés :</span>
-                <span className="font-medium">{fmt(montantARS - totalChargesReel)}</span>
+                <span className="font-medium">{fmt(montantSubvention - totalChargesReel)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Autofinancement :</span>
                 <span className="font-medium">{fmt(Math.max(0, totalProduitsReel - totalChargesReel))}</span>
               </div>
+              {pctSubvention != null && (
+                <div className="flex justify-between border-t border-gray-300 pt-1">
+                  <span>Part de la subvention dans les produits :</span>
+                  <span className="font-medium">{pctSubvention.toFixed(1)} %</span>
+                </div>
+              )}
             </div>
           </div>
 

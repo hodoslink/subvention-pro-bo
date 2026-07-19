@@ -281,6 +281,12 @@ export default function ExportDemande({ params }: { params: Promise<{ id: string
 
         {(demande.bilan_subvention_anterieure != null || demande.bilan_activites || demande.bilan_nb_beneficiaires_reel != null) && (
           <Section title="Bilan de la subvention antérieure (N-1)">
+            {/* Déclaration faite par l'association elle-même au moment de la
+                demande de renouvellement — distincte des bilans d'exécution
+                structurés (module bilans) listés dans la section suivante. */}
+            <p className="text-xs text-gray-500 italic mb-2">
+              Éléments déclarés par l&apos;association lors de la demande — à distinguer des bilans d&apos;exécution structurés ci-dessous.
+            </p>
             <table className="w-full text-sm"><tbody>
               <Row label="Subvention N-1" value={demande.bilan_subvention_anterieure != null ? eur(demande.bilan_subvention_anterieure) : null} />
               <Row label="Bénéficiaires réels N-1" value={demande.bilan_nb_beneficiaires_reel} />

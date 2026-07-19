@@ -387,6 +387,14 @@ export function ProjetTab() {
       {/* Bilan renouvellement */}
       {demande.type_demande === 'renouvellement' && (
         <SectionCard title="Bilan année précédente">
+          {demande.demande_precedente_id && (
+            <p className="text-xs text-gray-500 mb-3">
+              💡 Un bilan d&apos;exécution structuré existe peut-être sur la demande précédente :{' '}
+              <a href={`/demandes/${demande.demande_precedente_id}/bilans`} className="text-blue-600 hover:underline">
+                consulter ses bilans →
+              </a>
+            </p>
+          )}
           {editMode ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">

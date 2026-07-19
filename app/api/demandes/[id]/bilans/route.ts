@@ -78,7 +78,7 @@ export async function POST(
 
   const { data: lignes } = await supabase
     .from('budget_lignes')
-    .select('id, sens, compte, sous_categorie, bailleur_detail, montant')
+    .select('id, sens, compte, sous_categorie, bailleur_detail, montant, est_charge_commune, cle_repartition, est_valorisation_benevolat, piece_justificative_url')
     .eq('demande_id', id);
 
   if (lignes && lignes.length > 0) {
@@ -92,6 +92,10 @@ export async function POST(
       montant_prevu: l.montant,
       montant_reel: null,
       commentaire_ecart: null,
+      est_charge_commune: l.est_charge_commune ?? false,
+      cle_repartition: l.cle_repartition ?? null,
+      est_valorisation_benevolat: l.est_valorisation_benevolat ?? false,
+      piece_justificative_url: l.piece_justificative_url ?? null,
     }));
     await supabase.from('bilan_lignes').insert(snapshot);
   }

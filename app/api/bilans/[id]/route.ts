@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase';
 import { z } from 'zod';
+import { PIECES_BILAN } from '@/lib/piecesBilan';
 
 const patchSchema = z.object({
   statut: z.enum(['brouillon', 'valide', 'transmis']).optional(),
@@ -13,6 +14,20 @@ const patchSchema = z.object({
   signe_le: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   date_debut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   date_fin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // CERFA 15059 — feuillet 1 structuré
+  beneficiaires_par_type: z.array(z.object({
+    type: z.string().max(300),
+    nombre: z.number().int().min(0).nullable(),
+  })).optional().nullable(),
+  dates_lieux_realisation: z.array(z.object({
+    date_debut: z.string().max(20),
+    date_fin: z.string().max(20),
+    lieu: z.string().max(300),
+  })).optional().nullable(),
+  // CERFA 15059 — feuillet 3 (annexe)
+  regles_repartition_charges_indirectes: z.string().max(3000).optional().nullable(),
+  methode_valorisation_cvn: z.string().max(3000).optional().nullable(),
+  observations: z.string().max(5000).optional().nullable(),
 });
 
 export async function GET(
@@ -45,6 +60,34 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+
+  // Passage en "valide" (ou au-delà) : exiger les pièces obligatoires du bilan
+  if (parsed.data.statut === 'valide' || parsed.data.statut === 'transmis') {
+    const { data: current } = await supabase
+      .from('bilans')
+      .select('statut')
+      .eq('id', id)
+      .single();
+    if (current?.statut === 'brouillon') {
+      const { data: toutes } = await supabase
+        .from('pieces_requises')
+        .select('libelle, obligatoire, statut')
+        .eq('bilan_id', id);
+      // Checklist jamais initialisée = aucune pièce fournie
+      const manquantes = (toutes && toutes.length > 0)
+        ? toutes.filter(p => p.obligatoire && p.statut !== 'fourni').map(p => p.libelle)
+        : PIECES_BILAN.filter(p => p.obligatoire).map(p => p.libelle);
+      if (manquantes.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Pièces obligatoires manquantes : ${manquantes.join(' ; ')}`,
+            pieces_manquantes: manquantes,
+          },
+          { status: 422 }
+        );
+      }
+    }
   }
 
   const { data, error } = await supabase
